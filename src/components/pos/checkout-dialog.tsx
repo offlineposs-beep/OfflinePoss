@@ -1,0 +1,293 @@
+"use client";
+
+import type { CartItem, Payment, PaymentMethod, Sale } from "@/lib/types";
+import { Button } from "../ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
+import { useState, type ReactNode, useMemo, useEffect, useCallback } from "react";
+import { CreditCard, Landmark, Smartphone, DollarSign, Printer } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { ReceiptView } from "./receipt-view";
+import { useCurrency } from "@/hooks/use-currency";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import { renderToString } from 'react-dom/server';
+
+type CheckoutDialogProps = {
+  cart: CartItem[];
+  total: number;
+  children: ReactNode;
+  onCheckout: (payments: Payment[]) => Promise<Sale | null>;
+  onClearCart: () => void;
+};
+
+const paymentMethods: { value: PaymentMethod, label: string, icon: ReactNode }[] = [
+    { value: 'Efectivo USD', label: 'Efectivo USD', icon: <DollarSign className="w-5 h-5"/> },
+    { value: 'Efectivo Bs', label: 'Efectivo Bs', icon: <Landmark className="w-5 h_5"/> },
+    { value: 'Tarjeta', label: 'Tarjeta', icon: <CreditCard className="w-5 h-5"/> },
+    { value: 'Pago Móvil', label: 'Pago Móvil', icon: <Smartphone className="w-5 h-5"/> },
+]
+
+export function CheckoutDialog({ cart, total, children, onCheckout, onClearCart }: CheckoutDialogProps) {
+  const [open, setOpen] = useState(false);
+  const [completedSale, setCompletedSale] = useState<Sale | null>(null);
+  const { toast } = useToast();
+  const { format, getSymbol, currency, bsExchangeRate, convert, isLoading: currencyLoading } = useCurrency();
+  
+  const [payments, setPayments] = useState<Record<PaymentMethod, number>>({
+    'Efectivo USD': 0,
+    'Efectivo Bs': 0,
+    'Tarjeta': 0,
+    'Pago Móvil': 0,
+  });
+
+  useEffect(() => {
+    if (open) {
+      setPayments({
+        'Efectivo USD': 0,
+        'Efectivo Bs': 0,
+        'Tarjeta': 0,
+        'Pago Móvil': 0,
+      });
+      setCompletedSale(null);
+    }
+  }, [open, total]);
+
+  const totalPaid = useMemo(() => {
+    if (currencyLoading || !bsExchangeRate) return 0;
+    return Object.entries(payments).reduce((acc, [method, amount]) => {
+      const paymentMethod = method as PaymentMethod;
+      if (currency === 'USD') {
+        if (paymentMethod === 'Efectivo Bs' || paymentMethod === 'Tarjeta' || paymentMethod === 'Pago Móvil') {
+          return acc + convert(amount, 'Bs', 'USD');
+        }
+      }
+      if (currency === 'Bs') {
+        if (paymentMethod === 'Efectivo USD') {
+          return acc + convert(amount, 'USD', 'Bs');
+        }
+      }
+      return acc + amount;
+    }, 0);
+  }, [payments, currency, bsExchangeRate, convert, currencyLoading]);
+
+  const remaining = total - totalPaid;
+  const canConfirm = totalPaid >= total && total > 0;
+
+  const handlePaymentChange = (method: PaymentMethod, value: string) => {
+    const amount = parseFloat(value) || 0;
+    setPayments(prev => ({ ...prev, [method]: amount }));
+  };
+
+  const handleConfirm = async () => {
+    if (!canConfirm) return;
+
+    let activePayments: Payment[] = Object.entries(payments)
+      .filter(([, amount]) => amount > 0)
+      .map(([method, amount]) => ({
+        method: method as PaymentMethod,
+        amount: amount
+      }));
+    
+    const changeInMainCurrency = totalPaid - total;
+    if (changeInMainCurrency > 0.001) { // Use a small epsilon for float comparison
+        const mainCashMethod = currency === 'USD' ? 'Efectivo USD' : 'Efectivo Bs';
+        
+        let changeToGive = changeInMainCurrency;
+
+        const mainCashPayment = activePayments.find(p => p.method === mainCashMethod);
+
+        if (mainCashPayment) {
+            let deductibleAmount = changeToGive;
+            if (currency === 'Bs' && mainCashMethod === 'Efectivo USD') {
+              deductibleAmount = convert(changeToGive, 'Bs', 'USD');
+            } else if (currency === 'USD' && mainCashMethod === 'Efectivo Bs') {
+              deductibleAmount = convert(changeToGive, 'USD', 'Bs');
+            }
+
+            if (mainCashPayment.amount >= deductibleAmount) {
+                mainCashPayment.amount -= deductibleAmount;
+            } else {
+                 let remainingChangeInMainCurrency = changeToGive - (currency === 'USD' ? mainCashPayment.amount : convert(mainCashPayment.amount, 'Bs', 'USD'));
+                 mainCashPayment.amount = 0;
+
+                 const otherCashMethod = currency === 'USD' ? 'Efectivo Bs' : 'Efectivo USD';
+                 const otherCashPayment = activePayments.find(p => p.method === otherCashMethod);
+                 if(otherCashPayment){
+                     let secondaryDeductible = convert(remainingChangeInMainCurrency, currency, currency === 'USD' ? 'Bs' : 'USD');
+                     otherCashPayment.amount -= secondaryDeductible;
+                 }
+            }
+        }
+    }
+
+    const finalPayments = activePayments.filter(p => p.amount > 0.001);
+    const sale = await onCheckout(finalPayments);
+    if(sale) {
+        if (!sale.repairJobId) {
+          onClearCart();
+        }
+        setCompletedSale(sale);
+        toast({
+            title: "¡Venta Completada!",
+            description: `Total: ${getSymbol()}${format(sale.totalAmount)}`
+        });
+    }
+  }
+
+  const handleClose = () => {
+      setOpen(false);
+  }
+
+  const getPaymentAmountInCorrectCurrency = useCallback((payment: Payment) => {
+    const symbol = payment.method === 'Efectivo USD' ? '$' : 'Bs';
+    return `${symbol}${format(payment.amount)}`;
+  }, [format]);
+
+  const handlePrintReceipt = useCallback(() => {
+    if (!completedSale) return;
+    
+    const receiptHtml = renderToString(<ReceiptView 
+        sale={completedSale} 
+        currencySymbol={getSymbol()}
+        formatCurrency={format}
+        getPaymentAmountInCorrectCurrency={getPaymentAmountInCorrectCurrency}
+    />);
+    const printWindow = window.open('', '_blank', 'width=300,height=500');
+
+    if (printWindow) {
+        printWindow.document.write(`
+            <html>
+                <head>
+                    <title>Recibo</title>
+                    <style>
+                        body { margin: 0; font-family: monospace; font-size: 10px; }
+                        .receipt-container { width: 58mm; padding: 2mm; box-sizing: border-box; }
+                         .text-black { color: #000; } .bg-white { background-color: #fff; } .p-2 { padding: 0.5rem; }
+                        .font-mono { font-family: monospace; } .text-xs { font-size: 0.75rem; line-height: 1rem; }
+                        .max-w-\\[215px\\] { max-width: 215px; } .mx-auto { margin-left: auto; margin-right: auto; }
+                        .text-center { text-align: center; } .mb-2 { margin-bottom: 0.5rem; }
+                        .font-semibold { font-weight: 600; } .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
+                        .my-1 { margin-top: 0.25rem; margin-bottom: 0.25rem; } .border-dashed { border-style: dashed; }
+                        .border-black { border-color: #000; } .flex { display: flex; } .flex-1 { flex: 1 1 0%; }
+                        .w-1\\/4 { width: 25%; } .text-right { text-align: right; }
+                        .space-y-1 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.25rem; }
+                        .break-words { overflow-wrap: break-word; } .justify-between { justify-content: space-between; }
+                        .text-destructive { color: hsl(var(--destructive)); } .font-bold { font-weight: 700; }
+                        .mt-2 { margin-top: 0.5rem; } .mb-1 { margin-bottom: 0.25rem; }
+                    </style>
+                </head>
+                <body>
+                    <div class="receipt-container">${receiptHtml}</div>
+                    <script>
+                        window.onload = function() { window.print(); window.close(); }
+                    </script>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
+    } else {
+         toast({
+            variant: "destructive",
+            title: "Error de Impresión",
+            description: "No se pudo abrir la ventana de impresión. Revisa si tu navegador está bloqueando las ventanas emergentes."
+        })
+    }
+}, [completedSale, toast, getSymbol, format, getPaymentAmountInCorrectCurrency]);
+
+
+  const getPaymentMethodSymbol = (method: PaymentMethod) => {
+      if (method === 'Efectivo USD') return '$';
+      if (method === 'Efectivo Bs' || method === 'Tarjeta' || method === 'Pago Móvil') return 'Bs';
+      return getSymbol();
+  }
+
+  const remainingInUSD = currency === 'USD' ? remaining : convert(remaining, 'Bs', 'USD');
+  const remainingInBs = currency === 'Bs' ? remaining : convert(remaining, 'USD', 'Bs');
+  const changeInUSD = currency === 'USD' ? Math.abs(remaining) : convert(Math.abs(remaining), 'Bs', 'USD');
+  const changeInBs = currency === 'Bs' ? Math.abs(remaining) : convert(Math.abs(remaining), 'USD', 'Bs');
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => {
+        if (!isOpen) handleClose();
+        else setOpen(true);
+    }}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        {completedSale ? (
+            <div className="flex flex-col h-full">
+               <div className="p-4">
+                  <DialogTitle>Venta Completada</DialogTitle>
+                </div>
+              <div className="overflow-y-auto p-4">
+                <ReceiptView 
+                    sale={completedSale} 
+                    currencySymbol={getSymbol()}
+                    formatCurrency={format}
+                    getPaymentAmountInCorrectCurrency={getPaymentAmountInCorrectCurrency}
+                />
+              </div>
+              <div className="mt-auto p-6 bg-background flex gap-2">
+                   <Button onClick={handlePrintReceipt} variant="outline" className="w-full">
+                      <Printer className="mr-2 h-4 w-4" />
+                      Imprimir Recibo
+                  </Button>
+                  <Button onClick={handleClose} className="w-full">Cerrar</Button>
+              </div>
+          </div>
+        ) : (
+            <>
+            <DialogHeader>
+                <DialogTitle>Completar Venta</DialogTitle>
+            </DialogHeader>
+            <div className="py-4 space-y-6">
+                <div className="text-center p-4 bg-muted rounded-lg">
+                    <p className="text-sm text-muted-foreground">Monto Total a Pagar</p>
+                    <p className="text-4xl font-bold">{getSymbol()}{format(total)}</p>
+                </div>
+
+                <div className="space-y-2">
+                    <p className="font-medium">Introducir Pagos</p>
+                     <div className="grid grid-cols-2 gap-4">
+                        {paymentMethods.map(method => (
+                           <div key={method.value}>
+                                <Label htmlFor={method.value} className="flex items-center gap-2 mb-1 text-sm">{method.icon} {method.label}</Label>
+                                <div className="relative">
+                                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                                        <span className="text-gray-500 sm:text-sm">{getPaymentMethodSymbol(method.value)}</span>
+                                    </div>
+                                    <Input 
+                                        id={method.value}
+                                        type="number"
+                                        value={payments[method.value] || ''}
+                                        onChange={(e) => handlePaymentChange(method.value, e.target.value)}
+                                        placeholder="0.00"
+                                        className="pl-7"
+                                    />
+                                </div>
+                           </div>
+                        ))}
+                    </div>
+                </div>
+                 <div className="text-center p-3 rounded-lg bg-secondary text-secondary-foreground">
+                    <p className="text-sm">Monto Restante</p>
+                    <div className={`font-bold ${remaining > 0.001 ? 'text-destructive' : 'text-green-600'}`}>
+                        <p className="text-2xl">${format(remainingInUSD < 0 ? 0 : remainingInUSD, 'USD')}</p>
+                        <p className="text-lg">o Bs {format(remainingInBs < 0 ? 0 : remainingInBs, 'Bs')}</p>
+                    </div>
+                    {remaining < -0.001 && (
+                         <div className="text-xs mt-1">
+                            <p>Vuelto: ${format(changeInUSD, 'USD')} o Bs {format(changeInBs, 'Bs')}</p>
+                        </div>
+                    )}
+                </div>
+
+            </div>
+            <Button size="lg" onClick={handleConfirm} disabled={!canConfirm || currencyLoading}>
+                {currencyLoading ? 'Cargando tasa...' : 'Confirmar Pago'}
+            </Button>
+            </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
