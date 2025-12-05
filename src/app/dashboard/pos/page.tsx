@@ -9,10 +9,10 @@ import { useToast } from "@/hooks/use-toast";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useRouter } from "next/navigation";
 import { useCollection, useFirebase, useMemoFirebase, useUser } from "@/firebase";
-import { collection } from "firebase/firestore";
+import { collection, doc, getDoc } from "firebase/firestore";
 
 function POSContent() {
-    const { firestore } = useFirebase();
+    const { firestore, isUserLoading } = useFirebase();
     const { toast } = useToast();
     const searchParams = useSearchParams();
     const router = useRouter();
@@ -28,7 +28,7 @@ function POSContent() {
     
     useEffect(() => {
         const repairJobData = searchParams.get('repairJob');
-        if (repairJobData) {
+        if (repairJobData && !isUserLoading) {
             try {
                 const job: RepairJob = JSON.parse(decodeURIComponent(repairJobData));
                 setActiveRepairJob(job);
@@ -59,12 +59,12 @@ function POSContent() {
                 });
                 router.push('/dashboard/repairs');
             }
-        } else {
+        } else if (!repairJobData) {
             setCart([]);
             setActiveRepairJob(null);
         }
 
-    }, [searchParams, router, toast]);
+    }, [searchParams, router, toast, isUserLoading]);
 
 
     const handleProductSelect = (product: Product) => {
@@ -195,7 +195,7 @@ function POSContent() {
 
 export default function POSPage() {
     return (
-        <Suspense fallback={<div>Cargando...</div>}>
+        <Suspense fallback={<div>Cargando punto de venta...</div>}>
             <POSContent />
         </Suspense>
     )

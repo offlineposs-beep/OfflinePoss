@@ -1,7 +1,7 @@
+
 "use client";
 
-import { useSearchParams } from 'next/navigation';
-import React, { useMemo, useState } from 'react';
+import React, { Suspense } from 'react';
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { PlusCircle } from "lucide-react";
@@ -12,10 +12,11 @@ import type { Product } from '@/lib/types';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { collection } from 'firebase/firestore';
+import { useSearchParams } from 'next/navigation';
+import { useMemo, useState } from 'react';
 
-type StockFilter = 'all' | 'low' | 'out';
-
-export default function InventoryPage() {
+// Client component to handle searchParams and state
+function InventoryContent() {
     const { firestore } = useFirebase();
     const productsCollection = useMemoFirebase(() =>
         firestore ? collection(firestore, 'products') : null,
@@ -67,5 +68,17 @@ export default function InventoryPage() {
                 />
             </main>
         </>
-    )
+    );
 }
+
+type StockFilter = 'all' | 'low' | 'out';
+
+function Page() {
+  return (
+    <Suspense fallback={<div>Cargando inventario...</div>}>
+      <InventoryContent />
+    </Suspense>
+  )
+}
+
+export default Page;
