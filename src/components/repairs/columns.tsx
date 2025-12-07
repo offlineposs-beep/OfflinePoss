@@ -1,3 +1,4 @@
+
 "use client"
 
 import type { ColumnDef } from "@tanstack/react-table"
@@ -24,7 +25,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { format, parseISO } from "date-fns"
 import { es } from "date-fns/locale"
@@ -32,10 +32,10 @@ import { useCurrency } from "@/hooks/use-currency"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
 import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase"
 import { doc } from "firebase/firestore"
-import { RepairTicket } from "./repair-ticket"
-import { useCallback } from "react"
-import { renderToString } from "react-dom/server"
+import { handlePrintTicket } from "./repair-ticket"
 import { PayRepairButton } from "./pay-repair-button"
+import { AdminAuthDialog } from "../admin-auth-dialog"
+import { useState } from "react"
 
 const statusColors: Record<RepairStatus, "default" | "secondary" | "destructive" | "outline"> = {
     'Pendiente': 'destructive',
@@ -52,6 +52,7 @@ const repairStatuses: RepairStatus[] = ['Pendiente', 'Diagnóstico', 'En Progres
 const ActionsCell = ({ repairJob }: { repairJob: RepairJob }) => {
     const { toast } = useToast();
     const { firestore } = useFirebase();
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
     const handleDelete = () => {
         if (!firestore || !repairJob.id) return;
@@ -62,55 +63,21 @@ const ActionsCell = ({ repairJob }: { repairJob: RepairJob }) => {
             description: `El trabajo para ${repairJob.customerName} ha sido eliminado.`,
             variant: "destructive"
         })
+        setIsDeleteDialogOpen(false);
     }
-
-    const handlePrintTicket = useCallback(() => {
-        const ticketHtml = renderToString(<RepairTicket repairJob={repairJob} />);
-        const printWindow = window.open('', '_blank', 'width=300,height=500');
-
-        if (printWindow) {
-            printWindow.document.write(`
-                <html>
-                    <head>
-                        <title>Ticket de Reparación</title>
-                         <style>
-                            body { margin: 0; font-family: monospace; font-size: 10px; }
-                            .ticket-container { width: 58mm; padding: 2mm; box-sizing: border-box; }
-                            .text-black { color: #000; } .bg-white { background-color: #fff; } .p-2 { padding: 0.5rem; }
-                            .font-mono { font-family: monospace; } .text-xs { font-size: 0.75rem; line-height: 1rem; }
-                            .max-w-\\[215px\\] { max-width: 215px; } .mx-auto { margin-left: auto; margin-right: auto; }
-                            .text-center { text-align: center; } .mb-2 { margin-bottom: 0.5rem; } .my-2 { margin-top: 0.5rem; margin-bottom: 0.5rem; }
-                            .font-bold { font-weight: 700; } .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
-                            .my-1 { margin-top: 0.25rem; margin-bottom: 0.25rem; } .border-dashed { border-style: dashed; } .border-t { border-top-width: 1px; }
-                            .border-black { border-color: #000; } .flex { display: flex; } .flex-1 { flex: 1 1 0%; }
-                            .w-1\\/4 { width: 25%; } .text-right { text-align: right; }
-                            .space-y-1 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.25rem; }
-                            .break-words { overflow-wrap: break-word; } .justify-between { justify-content: space-between; }
-                            .text-destructive { color: hsl(var(--destructive)); } .font-bold { font-weight: 700; }
-                            .mt-2 { margin-top: 0.5rem; } .mb-1 { margin-bottom: 0.25rem; }
-                            .font-semibold { font-weight: 600; }
-                        </style>
-                    </head>
-                    <body>
-                        <div class="ticket-container">${ticketHtml}</div>
-                        <script>
-                            window.onload = function() { window.print(); window.close(); }
-                        </script>
-                    </body>
-                </html>
-            `);
-            printWindow.document.close();
-        } else {
+    
+    const onPrint = () => {
+        handlePrintTicket({ repairJob }, (error) => {
              toast({
                 variant: "destructive",
                 title: "Error de Impresión",
-                description: "No se pudo abrir la ventana de impresión. Revisa si tu navegador está bloqueando las ventanas emergentes."
+                description: error,
             })
-        }
-    }, [repairJob, toast]);
+        });
+    }
 
     return (
-        <AlertDialog>
+        <>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="h-8 w-8 p-0">
@@ -120,38 +87,44 @@ const ActionsCell = ({ repairJob }: { repairJob: RepairJob }) => {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                     <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-                    <DropdownMenuItem onSelect={handlePrintTicket}>
+                    <DropdownMenuItem onSelect={onPrint}>
                         <Printer className="mr-2 h-4 w-4" />
                         Imprimir Ticket
                     </DropdownMenuItem>
                     <RepairFormDialog repairJob={repairJob}>
-                        <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            Editar / Ver Detalles
-                        </DropdownMenuItem>
+                         <AdminAuthDialog onAuthorized={() => {}}>
+                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                <Edit className="mr-2 h-4 w-4" />
+                                Editar / Ver Detalles
+                            </DropdownMenuItem>
+                        </AdminAuthDialog>
                     </RepairFormDialog>
                     <DropdownMenuSeparator />
-                    <AlertDialogTrigger asChild>
+                    <AdminAuthDialog onAuthorized={() => setIsDeleteDialogOpen(true)}>
                         <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={(e) => e.preventDefault()}>
                             <Trash2 className="mr-2 h-4 w-4" />
                             Eliminar
                         </DropdownMenuItem>
-                    </AlertDialogTrigger>
+                    </AdminAuthDialog>
                 </DropdownMenuContent>
             </DropdownMenu>
-             <AlertDialogContent>
-                <AlertDialogHeader>
-                <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
-                <AlertDialogDescription>
-                    Esto eliminará permanentemente el trabajo de reparación para <span className="font-semibold">{repairJob.customerName}</span>.
-                </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
+
+            {/* Alert for deleting */}
+             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                    <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Esto eliminará permanentemente el trabajo de reparación para <span className="font-semibold">{repairJob.customerName}</span>.
+                    </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+             </AlertDialog>
+        </>
     )
 }
 
@@ -200,7 +173,7 @@ export const columns: ColumnDef<RepairJob>[] = [
   {
     accessorKey: "id",
     header: "ID de Trabajo",
-    cell: ({ row }) => <div className="text-xs text-muted-foreground">{row.original.id}</div>,
+    cell: ({ row }) => <div className="font-mono text-xs text-muted-foreground">{row.original.id}</div>,
   },
   {
     accessorKey: "customerName",

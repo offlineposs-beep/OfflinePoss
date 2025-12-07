@@ -6,11 +6,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useState, type ReactNode, useMemo, useEffect, useCallback } from "react";
 import { CreditCard, Landmark, Smartphone, DollarSign, Printer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { ReceiptView } from "./receipt-view";
+import { ReceiptView, handlePrintReceipt } from "./receipt-view";
 import { useCurrency } from "@/hooks/use-currency";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { renderToString } from 'react-dom/server';
 
 type CheckoutDialogProps = {
   cart: CartItem[];
@@ -143,56 +142,22 @@ export function CheckoutDialog({ cart, total, children, onCheckout, onClearCart 
     return `${symbol}${format(payment.amount)}`;
   }, [format]);
 
-  const handlePrintReceipt = useCallback(() => {
+  const onPrint = () => {
     if (!completedSale) return;
-    
-    const receiptHtml = renderToString(<ReceiptView 
-        sale={completedSale} 
-        currencySymbol={getSymbol()}
-        formatCurrency={format}
-        getPaymentAmountInCorrectCurrency={getPaymentAmountInCorrectCurrency}
-    />);
-    const printWindow = window.open('', '_blank', 'width=300,height=500');
-
-    if (printWindow) {
-        printWindow.document.write(`
-            <html>
-                <head>
-                    <title>Recibo</title>
-                    <style>
-                        body { margin: 0; font-family: monospace; font-size: 10px; }
-                        .receipt-container { width: 58mm; padding: 2mm; box-sizing: border-box; }
-                         .text-black { color: #000; } .bg-white { background-color: #fff; } .p-2 { padding: 0.5rem; }
-                        .font-mono { font-family: monospace; } .text-xs { font-size: 0.75rem; line-height: 1rem; }
-                        .max-w-\\[215px\\] { max-width: 215px; } .mx-auto { margin-left: auto; margin-right: auto; }
-                        .text-center { text-align: center; } .mb-2 { margin-bottom: 0.5rem; }
-                        .font-semibold { font-weight: 600; } .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
-                        .my-1 { margin-top: 0.25rem; margin-bottom: 0.25rem; } .border-dashed { border-style: dashed; }
-                        .border-black { border-color: #000; } .flex { display: flex; } .flex-1 { flex: 1 1 0%; }
-                        .w-1\\/4 { width: 25%; } .text-right { text-align: right; }
-                        .space-y-1 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.25rem; }
-                        .break-words { overflow-wrap: break-word; } .justify-between { justify-content: space-between; }
-                        .text-destructive { color: hsl(var(--destructive)); } .font-bold { font-weight: 700; }
-                        .mt-2 { margin-top: 0.5rem; } .mb-1 { margin-bottom: 0.25rem; }
-                    </style>
-                </head>
-                <body>
-                    <div class="receipt-container">${receiptHtml}</div>
-                    <script>
-                        window.onload = function() { window.print(); window.close(); }
-                    </script>
-                </body>
-            </html>
-        `);
-        printWindow.document.close();
-    } else {
-         toast({
-            variant: "destructive",
-            title: "Error de Impresión",
-            description: "No se pudo abrir la ventana de impresión. Revisa si tu navegador está bloqueando las ventanas emergentes."
-        })
-    }
-}, [completedSale, toast, getSymbol, format, getPaymentAmountInCorrectCurrency]);
+    const receiptProps = {
+      sale: completedSale,
+      currencySymbol: getSymbol(),
+      formatCurrency: format,
+      getPaymentAmountInCorrectCurrency: getPaymentAmountInCorrectCurrency
+    };
+    handlePrintReceipt(receiptProps, (error) => {
+      toast({
+        variant: "destructive",
+        title: "Error de Impresión",
+        description: error
+      });
+    });
+  };
 
 
   const getPaymentMethodSymbol = (method: PaymentMethod) => {
@@ -227,7 +192,7 @@ export function CheckoutDialog({ cart, total, children, onCheckout, onClearCart 
                 />
               </div>
               <div className="mt-auto p-6 bg-background flex gap-2">
-                   <Button onClick={handlePrintReceipt} variant="outline" className="w-full">
+                   <Button onClick={onPrint} variant="outline" className="w-full">
                       <Printer className="mr-2 h-4 w-4" />
                       Imprimir Recibo
                   </Button>

@@ -61,23 +61,27 @@ export function ProductGrid({ products, onProductSelect, isLoading }: ProductGri
                             </CardFooter>
                         </Card>
                     ))
-                ) : filteredProducts.map((product) => (
-                <Card
-                    key={product.id}
-                    onClick={() => onProductSelect(product)}
-                    className={cn(
-                        "cursor-pointer hover:border-primary transition-colors flex flex-col justify-between",
-                        product.stockLevel <= 0 && "opacity-50 cursor-not-allowed hover:border-input"
-                    )}
-                >
-                    <CardHeader className="p-2">
-                        <CardTitle className="text-sm font-medium leading-tight">{product.name}</CardTitle>
-                    </CardHeader>
-                    <CardFooter className="p-2 flex justify-end">
-                        <p className="text-xs font-bold">{getSymbol()}{format(product.retailPrice)}</p>
-                    </CardFooter>
-                </Card>
-                ))}
+                ) : filteredProducts.map((product) => {
+                    const availableStock = product.stockLevel - (product.reservedStock || 0);
+                    return (
+                        <Card
+                            key={product.id}
+                            onClick={() => onProductSelect(product)}
+                            className={cn(
+                                "cursor-pointer hover:border-primary transition-colors flex flex-col justify-between",
+                                availableStock <= 0 && "opacity-50 cursor-not-allowed hover:border-input"
+                            )}
+                        >
+                            <CardHeader className="p-2">
+                                <CardTitle className="text-sm font-medium leading-tight">{product.name}</CardTitle>
+                            </CardHeader>
+                            <CardFooter className="p-2 flex justify-between items-center">
+                                <p className="text-xs text-muted-foreground">Disp: {availableStock}</p>
+                                <p className="text-xs font-bold">{getSymbol()}{format(product.retailPrice)}</p>
+                            </CardFooter>
+                        </Card>
+                    )
+                })}
             </div>
           </ScrollArea>
         </div>

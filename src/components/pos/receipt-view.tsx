@@ -4,6 +4,7 @@ import type { Sale, Payment } from "@/lib/types";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { Separator } from "../ui/separator";
+import { renderToString } from 'react-dom/server';
 
 type ReceiptViewProps = {
     sale: Sale;
@@ -75,4 +76,44 @@ export function ReceiptView({ sale, currencySymbol, formatCurrency, getPaymentAm
              </div>
         </div>
     )
+};
+
+export const handlePrintReceipt = (props: ReceiptViewProps, onError: (message: string) => void) => {
+    const receiptHtml = renderToString(<ReceiptView {...props} />);
+    const printWindow = window.open('', '_blank', 'width=300,height=500');
+
+    if (printWindow) {
+        printWindow.document.write(`
+            <html>
+                <head>
+                    <title>Recibo</title>
+                    <style>
+                        body { margin: 0; font-family: monospace; font-size: 10px; }
+                        .receipt-container { width: 58mm; padding: 2mm; box-sizing: border-box; }
+                         .text-black { color: #000; } .bg-white { background-color: #fff; } .p-2 { padding: 0.5rem; }
+                        .font-mono { font-family: monospace; } .text-xs { font-size: 0.75rem; line-height: 1rem; }
+                        .max-w-\\[215px\\] { max-width: 215px; } .mx-auto { margin-left: auto; margin-right: auto; }
+                        .text-center { text-align: center; } .mb-2 { margin-bottom: 0.5rem; }
+                        .font-semibold { font-weight: 600; } .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
+                        .my-1 { margin-top: 0.25rem; margin-bottom: 0.25rem; } .border-dashed { border-style: dashed; }
+                        .border-black { border-color: #000; } .flex { display: flex; } .flex-1 { flex: 1 1 0%; }
+                        .w-1\\/4 { width: 25%; } .text-right { text-align: right; }
+                        .space-y-1 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.25rem; }
+                        .break-words { overflow-wrap: break-word; } .justify-between { justify-content: space-between; }
+                        .text-destructive { color: hsl(var(--destructive)); } .font-bold { font-weight: 700; }
+                        .mt-2 { margin-top: 0.5rem; } .mb-1 { margin-bottom: 0.25rem; }
+                    </style>
+                </head>
+                <body>
+                    <div class="receipt-container">${receiptHtml}</div>
+                    <script>
+                        window.onload = function() { window.print(); window.close(); }
+                    <\/script>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
+    } else {
+        onError("No se pudo abrir la ventana de impresión. Revisa si tu navegador está bloqueando las ventanas emergentes.");
+    }
 };

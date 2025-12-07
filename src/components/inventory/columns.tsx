@@ -1,3 +1,4 @@
+
 "use client"
 
 import type { ColumnDef } from "@tanstack/react-table"
@@ -24,15 +25,18 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { useCurrency } from "@/hooks/use-currency"
 import { useFirebase, deleteDocumentNonBlocking } from "@/firebase"
 import { doc } from "firebase/firestore"
+import { AdminAuthDialog } from "../admin-auth-dialog"
+import { useState } from "react"
 
 const ActionsCell = ({ product }: { product: Product }) => {
     const { toast } = useToast();
     const { firestore } = useFirebase();
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+
 
     const handleDelete = () => {
         if (!firestore || !product.id) return;
@@ -43,10 +47,11 @@ const ActionsCell = ({ product }: { product: Product }) => {
             description: `${product.name} ha sido eliminado del inventario.`,
             variant: "destructive"
         })
+        setIsDeleteDialogOpen(false);
     }
 
     return (
-        <AlertDialog>
+        <>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="h-8 w-8 p-0">
@@ -57,34 +62,40 @@ const ActionsCell = ({ product }: { product: Product }) => {
                 <DropdownMenuContent align="end">
                     <DropdownMenuLabel>Acciones</DropdownMenuLabel>
                     <ProductFormDialog product={product}>
-                        <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            Editar
-                        </DropdownMenuItem>
+                        <AdminAuthDialog onAuthorized={() => {}}>
+                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                <Edit className="mr-2 h-4 w-4" />
+                                Editar
+                            </DropdownMenuItem>
+                        </AdminAuthDialog>
                     </ProductFormDialog>
                     <DropdownMenuSeparator />
-                    <AlertDialogTrigger asChild>
+                    <AdminAuthDialog onAuthorized={() => setIsDeleteDialogOpen(true)}>
                         <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={(e) => e.preventDefault()}>
                             <Trash2 className="mr-2 h-4 w-4" />
                             Eliminar
                         </DropdownMenuItem>
-                    </AlertDialogTrigger>
+                    </AdminAuthDialog>
                 </DropdownMenuContent>
             </DropdownMenu>
-             <AlertDialogContent>
-                <AlertDialogHeader>
-                <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
-                <AlertDialogDescription>
-                    Esta acción no se puede deshacer. Esto eliminará permanentemente el producto
-                    <span className="font-semibold"> {product.name}</span>.
-                </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
+
+            {/* Alert for deleting */}
+             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                 <AlertDialogContent>
+                    <AlertDialogHeader>
+                    <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Esta acción no se puede deshacer. Esto eliminará permanentemente el producto
+                        <span className="font-semibold"> {product.name}</span>.
+                    </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+             </AlertDialog>
+        </>
     )
 }
 
@@ -120,24 +131,43 @@ export const columns: ColumnDef<Product>[] = [
                 variant="ghost"
                 onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
             >
-                Stock
+                Stock Total
                 <ArrowUpDown className="ml-2 h-4 w-4" />
             </Button>
         </div>
     ),
     cell: ({ row }) => {
         const stock: number = row.getValue("stockLevel");
-        const threshold: number = row.original.lowStockThreshold;
-        
-        let variant: "default" | "secondary" | "destructive" | "outline" = "secondary";
-        if (stock <= 0) {
-            variant = "destructive"
-        } else if (stock <= threshold) {
-            variant = "outline";
-            return <div className="text-center"><Badge variant={variant} className="border-yellow-500 text-yellow-500">{stock}</Badge></div>
-        }
+        return <div className="text-center"><Badge variant="secondary">{stock}</Badge></div>
+    }
+  },
+  {
+    accessorKey: "reservedStock",
+    header: () => <div className="text-center">Reservado</div>,
+    cell: ({ row }) => {
+        const reserved = row.original.reservedStock || 0;
+        return <div className="text-center"><Badge variant={reserved > 0 ? "outline" : "secondary"}>{reserved}</Badge></div>
+    }
+  },
+  {
+    id: 'availableStock',
+    header: () => <div className="text-center">Disponible</div>,
+    cell: ({ row }) => {
+      const stock: number = row.original.stockLevel;
+      const reserved: number = row.original.reservedStock || 0;
+      const available = stock - reserved;
+      const threshold: number = row.original.lowStockThreshold;
 
-        return <div className="text-center"><Badge variant={variant}>{stock}</Badge></div>
+      let variant: "default" | "secondary" | "destructive" | "outline" = "secondary";
+      let className = "";
+      if (available <= 0) {
+        variant = "destructive"
+      } else if (available <= threshold) {
+        variant = "outline";
+        className="border-yellow-500 text-yellow-500"
+      }
+
+      return <div className="text-center"><Badge variant={variant} className={className}>{available}</Badge></div>
     }
   },
   {

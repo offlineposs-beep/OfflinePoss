@@ -8,8 +8,15 @@ export type Product = {
   costPrice: number;
   retailPrice: number;
   stockLevel: number;
+  reservedStock: number;
   lowStockThreshold: number;
 };
+
+export type ReservedPart = {
+  productId: string;
+  productName: string;
+  quantity: number;
+}
 
 export type RepairStatus = 'Pendiente' | 'Diagnóstico' | 'En Progreso' | 'Esperando Piezas' | 'Listo para Recoger' | 'Completado';
 
@@ -21,12 +28,14 @@ export type RepairJob = {
   deviceModel: string;
   deviceImei?: string;
   reportedIssue: string;
+  initialCondition?: string; // Nuevo campo
   estimatedCost: number;
   amountPaid: number;
   isPaid: boolean;
   status: RepairStatus;
   notes?: string;
   createdAt: string;
+  reservedParts: ReservedPart[];
 };
 
 export type CartItem = {
@@ -54,7 +63,6 @@ export type Sale = {
   paymentMethod: string;
   transactionDate: string;
   payments: Payment[];
-  createdAt: string; // Legacy from local state, use transactionDate instead
 };
 
 export type Currency = 'USD' | 'Bs';

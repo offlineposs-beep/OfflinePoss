@@ -1,3 +1,4 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -25,8 +26,9 @@ import { Input } from "@/components/ui/input";
 import type { Product } from "@/lib/types";
 import { useState, type ReactNode, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { useFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from "@/firebase";
+import { useFirebase, setDocumentNonBlocking } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
+import { format } from "date-fns";
 
 const formSchema = z.object({
   name: z.string().min(2, { message: "El nombre debe tener al menos 2 caracteres." }),
@@ -44,6 +46,14 @@ type ProductFormDialogProps = {
   product?: Product;
   children: ReactNode;
 };
+
+function generateProductId() {
+    const date = new Date();
+    const datePart = format(date, 'yyMMdd');
+    const randomPart = Math.floor(1000 + Math.random() * 9000);
+    return `PROD-${datePart}-${randomPart}`;
+}
+
 
 export function ProductFormDialog({ product, children }: ProductFormDialogProps) {
   const { firestore } = useFirebase();
@@ -64,18 +74,20 @@ export function ProductFormDialog({ product, children }: ProductFormDialogProps)
   });
 
   useEffect(() => {
-    if (product) {
-        form.reset(product);
-    } else {
-        form.reset({
-            name: "",
-            category: "",
-            sku: "",
-            costPrice: 0,
-            retailPrice: 0,
-            stockLevel: 0,
-            lowStockThreshold: 5,
-        });
+    if (open) {
+        if (product) {
+            form.reset(product);
+        } else {
+            form.reset({
+                name: "",
+                category: "",
+                sku: "",
+                costPrice: 0,
+                retailPrice: 0,
+                stockLevel: 0,
+                lowStockThreshold: 5,
+            });
+        }
     }
   }, [product, form, open]);
 
@@ -84,12 +96,13 @@ export function ProductFormDialog({ product, children }: ProductFormDialogProps)
     if (!firestore) return;
 
     if (product) {
-      const productRef = doc(firestore, 'products', product.id);
+      const productRef = doc(firestore, 'products', product.id!);
       setDocumentNonBlocking(productRef, values, { merge: true });
       toast({ title: "Producto Actualizado", description: `${values.name} ha sido actualizado.` });
     } else {
-      const productsCollection = collection(firestore, 'products');
-      addDocumentNonBlocking(productsCollection, values);
+      const productId = generateProductId();
+      const productRef = doc(firestore, 'products', productId);
+      setDocumentNonBlocking(productRef, { ...values, id: productId, reservedStock: 0 });
       toast({ title: "Producto Añadido", description: `${values.name} ha sido añadido al inventario.` });
     }
     setOpen(false);

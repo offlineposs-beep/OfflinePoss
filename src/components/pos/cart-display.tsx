@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { CartItem, Payment, Product, Sale } from "@/lib/types";
@@ -10,8 +11,10 @@ import { useCurrency } from "@/hooks/use-currency";
 import { useRouter } from "next/navigation";
 import { ScrollArea } from "../ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { useFirebase, addDocumentNonBlocking } from "@/firebase";
+import { useFirebase } from "@/firebase";
 import { collection, doc, getDoc, writeBatch } from "firebase/firestore";
+import { useToast } from "@/hooks/use-toast";
+import { format } from "date-fns";
 
 type CartDisplayProps = {
   cart: CartItem[];
@@ -22,8 +25,16 @@ type CartDisplayProps = {
   allProducts: Product[];
 };
 
+function generateSaleId() {
+    const date = new Date();
+    const datePart = format(date, 'yyMMdd');
+    const randomPart = Math.floor(1000 + Math.random() * 9000);
+    return `VENTA-${datePart}-${randomPart}`;
+}
+
 export function CartDisplay({ cart, onUpdateQuantity, onRemoveItem, onClearCart, repairJobId, allProducts }: CartDisplayProps) {
   const { firestore } = useFirebase();
+  const { toast } = useToast();
   const router = useRouter();
   const { format, getSymbol, currency, convert } = useCurrency();
   const [discount, setDiscount] = useState(0);
@@ -35,7 +46,61 @@ export function CartDisplay({ cart, onUpdateQuantity, onRemoveItem, onClearCart,
   const handleCheckout = async (payments: Payment[]) => {
       if (!firestore) return null;
 
-      const saleData: Omit<Sale, 'id' | 'createdAt'> = {
+      const batch = writeBatch(firestore);
+
+      // Handle stock and reservations
+      for (const item of cart) {
+        if (!item.isRepair && item.productId) {
+          const product = allProducts.find(p => p.id === item.productId);
+          if (product) {
+            const productRef = doc(firestore, 'products', item.productId);
+            const newStock = product.stockLevel - item.quantity;
+            batch.update(productRef, { stockLevel: newStock });
+          }
+        }
+      }
+
+      if (repairJobId) {
+        const repairJobRef = doc(firestore, 'repair_jobs', repairJobId);
+        const repairJobDoc = await getDoc(repairJobRef);
+        const repairJobData = repairJobDoc.data();
+        
+        if (repairJobData && repairJobData.reservedParts) {
+            for (const part of repairJobData.reservedParts) {
+                const productRef = doc(firestore, 'products', part.productId);
+                const productDoc = await getDoc(productRef);
+                const productData = productDoc.data();
+                if (productData) {
+                    const newReservedStock = (productData.reservedStock || 0) - part.quantity;
+                    const newStockLevel = productData.stockLevel - part.quantity;
+                    batch.update(productRef, { 
+                        stockLevel: newStockLevel < 0 ? 0 : newStockLevel,
+                        reservedStock: newReservedStock < 0 ? 0 : newReservedStock 
+                    });
+                }
+            }
+        }
+        
+        const currentAmountPaid = repairJobData?.amountPaid || 0;
+        const totalPaidForRepairThisTransaction = payments.reduce((acc, p) => {
+            if (p.method === 'Efectivo USD') return acc + p.amount;
+            if (p.method === 'Efectivo Bs' || p.method === 'Tarjeta' || p.method === 'Pago Móvil') {
+              return acc + convert(p.amount, 'Bs', 'USD');
+            }
+            return acc;
+        }, 0);
+        const newTotalPaid = currentAmountPaid + totalPaidForRepairThisTransaction;
+
+        batch.update(repairJobRef, { 
+            status: 'Completado', 
+            amountPaid: newTotalPaid,
+            isPaid: true,
+            reservedParts: [] // Clear reserved parts after completion
+        });
+      }
+      
+      const saleId = generateSaleId();
+      const saleData: Omit<Sale, 'id'> = {
           items: cart,
           subtotal: subtotal,
           discount: discountInBase,
@@ -45,55 +110,19 @@ export function CartDisplay({ cart, onUpdateQuantity, onRemoveItem, onClearCart,
           payments: payments, 
           repairJobId: repairJobId || undefined,
       };
-
-      const salesCollection = collection(firestore, 'sale_transactions');
-      const newSaleRef = await addDocumentNonBlocking(salesCollection, saleData);
-      const saleId = newSaleRef?.id || `local-${Date.now()}`;
-
-      const batch = writeBatch(firestore);
-
-      cart.forEach(item => {
-          if (!item.isRepair && item.productId) {
-              const product = allProducts.find(p => p.id === item.productId);
-              if (product) {
-                  const productRef = doc(firestore, 'products', item.productId);
-                  const newStock = product.stockLevel - item.quantity;
-                  batch.update(productRef, { stockLevel: newStock });
-              }
-          }
-      });
-
-      if (repairJobId) {
-          const repairJobRef = doc(firestore, 'repair_jobs', repairJobId);
-          const repairJobDoc = await getDoc(repairJobRef);
-          const currentAmountPaid = repairJobDoc.data()?.amountPaid || 0;
-
-          const totalPaidForRepairThisTransaction = payments.reduce((acc, p) => {
-              if (p.method === 'Efectivo USD') return acc + p.amount;
-              if (p.method === 'Efectivo Bs' || p.method === 'Tarjeta' || p.method === 'Pago Móvil') {
-                return acc + convert(p.amount, 'Bs', 'USD');
-              }
-              return acc;
-          }, 0);
-
-          const newTotalPaid = currentAmountPaid + totalPaidForRepairThisTransaction;
-
-          batch.update(repairJobRef, { 
-              status: 'Completado', 
-              amountPaid: newTotalPaid,
-              isPaid: true
-          });
-      }
+      
+      const saleRef = doc(firestore, 'sale_transactions', saleId);
+      batch.set(saleRef, { ...saleData, id: saleId });
 
       await batch.commit();
 
-      const completedSale: Sale = { ...saleData, id: saleId, createdAt: saleData.transactionDate };
+      const completedSale: Sale = { ...saleData, id: saleId };
       
       if(repairJobId) {
           router.push('/dashboard/repairs');
-          onClearCart();
       }
       
+      onClearCart();
       setDiscount(0);
 
       return completedSale;

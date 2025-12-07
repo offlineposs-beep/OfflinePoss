@@ -1,7 +1,8 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useFieldArray } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,22 +23,29 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import type { RepairJob, RepairStatus } from "@/lib/types";
-import { useState, type ReactNode, useEffect, useCallback } from "react";
+import type { RepairJob, RepairStatus, Product, ReservedPart } from "@/lib/types";
+import { useState, type ReactNode, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "../ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { useCurrency } from "@/hooks/use-currency";
 import { Checkbox } from "../ui/checkbox";
 import { Label } from "../ui/label";
-import { useFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from "@/firebase";
-import { collection, doc } from "firebase/firestore";
-import { renderToString } from "react-dom/server";
-import { RepairTicket } from "./repair-ticket";
-import { Printer } from "lucide-react";
-
+import { useFirebase, setDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase } from "@/firebase";
+import { collection, doc, writeBatch } from "firebase/firestore";
+import { handlePrintTicket } from "./repair-ticket";
+import { Printer, Search, Trash2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "../ui/command";
+import { format } from "date-fns";
 
 const repairStatuses: RepairStatus[] = ['Pendiente', 'Diagnóstico', 'En Progreso', 'Esperando Piezas', 'Listo para Recoger', 'Completado'];
+
+const reservedPartSchema = z.object({
+  productId: z.string(),
+  productName: z.string(),
+  quantity: z.coerce.number().min(1, "La cantidad debe ser al menos 1."),
+});
 
 const formSchema = z.object({
   customerName: z.string().min(2, "El nombre es obligatorio."),
@@ -46,11 +54,13 @@ const formSchema = z.object({
   deviceModel: z.string().min(1, "El modelo del dispositivo es obligatorio."),
   deviceImei: z.string().optional(),
   reportedIssue: z.string().min(5, "La descripción del problema es obligatoria."),
+  initialCondition: z.string().optional(), // Nuevo campo
   estimatedCost: z.coerce.number().min(0),
   amountPaid: z.coerce.number().min(0),
   isPaid: z.boolean(),
   status: z.enum(repairStatuses),
   notes: z.string().optional(),
+  reservedParts: z.array(reservedPartSchema).optional(),
 });
 
 type RepairFormData = z.infer<typeof formSchema>;
@@ -60,11 +70,21 @@ type RepairFormDialogProps = {
   children: ReactNode;
 };
 
+function generateJobId() {
+    const date = new Date();
+    const datePart = format(date, 'yyMMdd');
+    const randomPart = Math.floor(1000 + Math.random() * 9000); // 4-digit random number
+    return `${datePart}-${randomPart}`;
+}
+
 export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps) {
   const { firestore } = useFirebase();
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
   const { getSymbol } = useCurrency();
+
+  const productsCollection = useMemoFirebase(() => firestore ? collection(firestore, 'products') : null, [firestore]);
+  const { data: products } = useCollection<Product>(productsCollection);
 
   const form = useForm<RepairFormData>({
     resolver: zodResolver(formSchema),
@@ -75,12 +95,19 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
       deviceModel: "",
       deviceImei: "",
       reportedIssue: "",
+      initialCondition: "",
       estimatedCost: 0,
       amountPaid: 0,
       isPaid: false,
       status: "Pendiente",
       notes: "",
+      reservedParts: [],
     },
+  });
+
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "reservedParts",
   });
 
   useEffect(() => {
@@ -89,8 +116,10 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
             form.reset({
                 ...repairJob,
                 deviceImei: repairJob.deviceImei ?? "",
+                initialCondition: repairJob.initialCondition ?? "",
                 notes: repairJob.notes ?? "",
                 amountPaid: repairJob.amountPaid || 0,
+                reservedParts: repairJob.reservedParts || [],
             });
         } else {
             form.reset({
@@ -100,99 +129,89 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
                 deviceModel: "",
                 deviceImei: "",
                 reportedIssue: "",
+                initialCondition: "",
                 estimatedCost: 0,
                 amountPaid: 0,
                 isPaid: false,
                 status: "Pendiente",
                 notes: "",
+                reservedParts: [],
             });
         }
     }
   }, [repairJob, form, open]);
 
-  const handlePrintTicket = useCallback((job: RepairJob) => {
-    const ticketHtml = renderToString(<RepairTicket repairJob={job} />);
-    const printWindow = window.open('', '_blank', 'width=300,height=500');
-
-    if (printWindow) {
-        printWindow.document.write(`
-            <html>
-                <head>
-                    <title>Ticket de Reparación</title>
-                    <style>
-                        body { margin: 0; font-family: monospace; font-size: 10px; }
-                        .ticket-container { width: 58mm; padding: 2mm; box-sizing: border-box; }
-                         .text-black { color: #000; } .bg-white { background-color: #fff; } .p-2 { padding: 0.5rem; }
-                        .font-mono { font-family: monospace; } .text-xs { font-size: 0.75rem; line-height: 1rem; }
-                        .max-w-\\[215px\\] { max-width: 215px; } .mx-auto { margin-left: auto; margin-right: auto; }
-                        .text-center { text-align: center; } .mb-2 { margin-bottom: 0.5rem; } .my-2 { margin-top: 0.5rem; margin-bottom: 0.5rem; }
-                        .font-bold { font-weight: 700; } .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
-                        .my-1 { margin-top: 0.25rem; margin-bottom: 0.25rem; } .border-dashed { border-style: dashed; } .border-t { border-top-width: 1px; }
-                        .border-black { border-color: #000; } .flex { display: flex; } .flex-1 { flex: 1 1 0%; }
-                        .w-1\\/4 { width: 25%; } .text-right { text-align: right; }
-                        .space-y-1 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.25rem; }
-                        .break-words { overflow-wrap: break-word; } .justify-between { justify-content: space-between; }
-                        .text-destructive { color: hsl(var(--destructive)); } .font-bold { font-weight: 700; }
-                        .mt-2 { margin-top: 0.5rem; } .mb-1 { margin-bottom: 0.25rem; }
-                        .font-semibold { font-weight: 600; }
-                    </style>
-                </head>
-                <body>
-                    <div class="ticket-container">${ticketHtml}</div>
-                    <script>
-                        window.onload = function() { window.print(); window.close(); }
-                    </script>
-                </body>
-            </html>
-        `);
-        printWindow.document.close();
-    } else {
-         toast({
-            variant: "destructive",
-            title: "Error de Impresión",
-            description: "No se pudo abrir la ventana de impresión. Revisa si tu navegador está bloqueando las ventanas emergentes."
-        })
-    }
-  }, [toast]);
+  const onPrint = (job: RepairJob) => {
+    handlePrintTicket({ repairJob: job }, (error) => {
+      toast({
+        variant: "destructive",
+        title: "Error de Impresión",
+        description: error,
+      });
+    });
+  };
 
 
   async function onSubmit(values: RepairFormData) {
     if (!firestore) return;
 
-    const finalValues = {
-        ...values,
-        deviceImei: values.deviceImei || "",
-        notes: values.notes || "",
-    };
+    const batch = writeBatch(firestore);
+    const originalParts = repairJob?.reservedParts || [];
+    const newParts = values.reservedParts || [];
+
+    // Calculate changes in reservations
+    const reservationChanges: { [productId: string]: number } = {};
+
+    originalParts.forEach(part => {
+        reservationChanges[part.productId] = (reservationChanges[part.productId] || 0) - part.quantity;
+    });
+
+    newParts.forEach(part => {
+        reservationChanges[part.productId] = (reservationChanges[part.productId] || 0) + part.quantity;
+    });
+
+    for (const productId in reservationChanges) {
+        const change = reservationChanges[productId];
+        if (change !== 0) {
+            const productRef = doc(firestore, 'products', productId);
+            const product = products?.find(p => p.id === productId);
+            if(product) {
+                const newReservedStock = (product.reservedStock || 0) + change;
+                batch.update(productRef, { reservedStock: newReservedStock });
+            }
+        }
+    }
+
+    const finalValues = { ...values, notes: values.notes || "", initialCondition: values.initialCondition || "" };
 
     if (repairJob) {
-      const jobRef = doc(firestore, 'repair_jobs', repairJob.id);
-      setDocumentNonBlocking(jobRef, finalValues, { merge: true });
+      const jobRef = doc(firestore, 'repair_jobs', repairJob.id!);
+      batch.set(jobRef, finalValues, { merge: true });
+      await batch.commit();
       toast({ title: "Trabajo de Reparación Actualizado", description: `El trabajo para ${values.customerName} ha sido actualizado.` });
     } else {
-      const jobsCollection = collection(firestore, 'repair_jobs');
-      const newJob = { 
-        createdAt: new Date().toISOString(), 
-        ...finalValues 
-      };
-      const newDocRef = await addDocumentNonBlocking(jobsCollection, newJob);
-      if (newDocRef) {
-        const fullJobData: RepairJob = { ...newJob, id: newDocRef.id };
-        handlePrintTicket(fullJobData);
-      }
+      const jobId = generateJobId();
+      const newJobData = { ...finalValues, id: jobId, createdAt: new Date().toISOString() };
+      const jobRef = doc(firestore, 'repair_jobs', jobId);
+      batch.set(jobRef, newJobData);
+      await batch.commit();
+      
+      const fullJobData: RepairJob = { ...newJobData, reservedParts: newJobData.reservedParts || [] };
+      onPrint(fullJobData);
+      
       toast({ title: "Trabajo de Reparación Creado", description: `Nuevo trabajo para ${values.customerName} ha sido registrado.` });
     }
     setOpen(false);
     form.reset();
   }
-
+  
   const estimatedCost = form.watch('estimatedCost');
   const amountPaid = form.watch('amountPaid');
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{repairJob ? 'Editar Trabajo de Reparación' : 'Registrar Nuevo Trabajo de Reparación'}</DialogTitle>
           <DialogDescription>
@@ -227,6 +246,69 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
             <FormField control={form.control} name="reportedIssue" render={({ field }) => (
                 <FormItem><FormLabel>Problema Reportado</FormLabel><FormControl><Textarea placeholder="Describe el problema..." {...field} /></FormControl><FormMessage /></FormItem>
             )}/>
+
+             <FormField control={form.control} name="initialCondition" render={({ field }) => (
+                <FormItem><FormLabel>Condición Inicial y Accesorios</FormLabel><FormControl><Textarea placeholder="Ej: Pantalla con rayones leves, se entrega con cargador..." {...field} /></FormControl><FormMessage /></FormItem>
+            )}/>
+
+             <fieldset>
+                <legend className="text-sm font-medium mb-2 col-span-2">Piezas Reservadas</legend>
+                <div className="space-y-2">
+                    {fields.map((field, index) => {
+                        return (
+                            <div key={field.id} className="flex items-center gap-2 p-2 border rounded-md">
+                                <span className="flex-1">{field.productName}</span>
+                                <Input 
+                                    type="number" 
+                                    {...form.register(`reservedParts.${index}.quantity` as const)}
+                                    className="w-20"
+                                />
+                                <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}>
+                                    <Trash2 className="w-4 h-4 text-destructive" />
+                                </Button>
+                            </div>
+                        )
+                    })}
+                     <Popover>
+                        <PopoverTrigger asChild>
+                            <Button type="button" variant="outline" className="w-full">
+                                <Search className="mr-2 h-4 w-4" /> Añadir Pieza
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[300px] p-0">
+                            <Command>
+                                <CommandInput placeholder="Buscar pieza..." />
+                                <CommandList>
+                                <CommandEmpty>No se encontraron piezas.</CommandEmpty>
+                                <CommandGroup>
+                                    {(products || []).map((product) => {
+                                        const availableStock = product.stockLevel - (product.reservedStock || 0);
+                                        return (
+                                            <CommandItem
+                                                key={product.id}
+                                                value={product.name}
+                                                onSelect={() => {
+                                                    if (availableStock > 0 && !fields.some(f => f.productId === product.id)) {
+                                                        append({ productId: product.id!, productName: product.name, quantity: 1 });
+                                                    } else {
+                                                        toast({ variant: 'destructive', title: 'Stock no disponible o ya añadido' })
+                                                    }
+                                                }}
+                                                disabled={availableStock <= 0 || fields.some(f => f.productId === product.id)}
+                                                className="flex justify-between"
+                                            >
+                                                <span>{product.name}</span>
+                                                <span className="text-xs text-muted-foreground">Disp: {availableStock}</span>
+                                            </CommandItem>
+                                        )
+                                    })}
+                                </CommandGroup>
+                                </CommandList>
+                            </Command>
+                        </PopoverContent>
+                    </Popover>
+                </div>
+             </fieldset>
 
              <fieldset className="grid grid-cols-2 gap-4">
                 <legend className="text-sm font-medium mb-2 col-span-2">Costos y Estado</legend>
@@ -269,7 +351,7 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
             )}/>
             <DialogFooter className="sticky bottom-0 bg-background pt-4 items-center">
                 {repairJob && (
-                    <Button type="button" variant="outline" onClick={() => handlePrintTicket(repairJob)}>
+                    <Button type="button" variant="outline" onClick={() => onPrint(repairJob)}>
                         <Printer className="mr-2 h-4 w-4" />
                         Imprimir Ticket
                     </Button>
