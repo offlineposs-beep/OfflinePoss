@@ -1,3 +1,4 @@
+
 "use client";
 
 import { ProductGrid } from "@/components/pos/product-grid";
@@ -8,7 +9,7 @@ import { useSearchParams } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useRouter } from "next/navigation";
-import { useCollection, useFirebase, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase";
+import { useCollection, useFirebase, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { FolderClock, ParkingSquare } from "lucide-react";
@@ -44,32 +45,37 @@ function POSContent() {
             const saleToRestore = heldSales.find(s => s.id === restoredSaleId);
             if (saleToRestore) {
                 setCart(saleToRestore.items);
-                // Optionally remove the restored sale
-                const saleRef = doc(firestore!, 'held_sales', restoredSaleId);
-                deleteDocumentNonBlocking(saleRef);
-                 router.replace('/dashboard/pos', { scroll: false });
+                // Remove the restored sale
+                if(firestore) {
+                    const saleRef = doc(firestore, 'held_sales', restoredSaleId);
+                    deleteDocumentNonBlocking(saleRef);
+                }
+                 // Remove the router.replace to prevent the cart from being cleared
             }
         } else if (repairJobData && !isUserLoading) {
             try {
-                const job: RepairJob = JSON.parse(decodeURIComponent(repairJobData));
-                setActiveRepairJob(job);
-                const remainingBalance = job.estimatedCost - (job.amountPaid || 0);
+                // Ensure repairJobData is not empty or malformed before parsing
+                if (repairJobData) {
+                    const job: RepairJob = JSON.parse(decodeURIComponent(repairJobData));
+                    setActiveRepairJob(job);
+                    const remainingBalance = job.estimatedCost - (job.amountPaid || 0);
 
-                if (remainingBalance > 0) {
-                     const repairCartItem: CartItem = {
-                        productId: job.id!,
-                        name: `Reparación: ${job.deviceMake} ${job.deviceModel}`,
-                        price: remainingBalance,
-                        quantity: 1,
-                        isRepair: true,
-                    };
-                    setCart([repairCartItem]);
-                } else {
-                     toast({
-                        title: "Reparación ya Pagada",
-                        description: "Esta reparación no tiene saldo pendiente.",
-                    });
-                    router.push('/dashboard/repairs');
+                    if (remainingBalance > 0) {
+                         const repairCartItem: CartItem = {
+                            productId: job.id!,
+                            name: `Reparación: ${job.deviceMake} ${job.deviceModel}`,
+                            price: remainingBalance,
+                            quantity: 1,
+                            isRepair: true,
+                        };
+                        setCart([repairCartItem]);
+                    } else {
+                         toast({
+                            title: "Reparación ya Pagada",
+                            description: "Esta reparación no tiene saldo pendiente.",
+                        });
+                        router.push('/dashboard/repairs');
+                    }
                 }
             } catch (error) {
                 console.error("Error parsing repair job data from URL", error);
@@ -193,10 +199,10 @@ function POSContent() {
             createdAt: new Date().toISOString()
         };
 
-        const heldSaleWithId = { ...newHeldSale, id: doc(collection(firestore, 'dummy')).id };
-        const heldSaleRef = doc(firestore, 'held_sales', heldSaleWithId.id);
+        const heldSaleId = doc(collection(firestore, 'dummy')).id;
+        const heldSaleRef = doc(firestore, 'held_sales', heldSaleId);
         
-        addDocumentNonBlocking(collection(firestore, 'held_sales'), newHeldSale);
+        setDocumentNonBlocking(heldSaleRef, { ...newHeldSale, id: heldSaleId });
 
         toast({
             title: "Venta Aparcada",

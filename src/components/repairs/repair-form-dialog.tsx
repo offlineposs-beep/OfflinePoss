@@ -75,14 +75,15 @@ type RepairFormDialogProps = {
 
 function generateJobId() {
     const date = new Date();
-    const datePart = format(date, 'yyMMdd');
-    const randomPart = Math.floor(1000 + Math.random() * 9000); // 4-digit random number
-    return `${datePart}-${randomPart}`;
+    const datePart = format(date, "yyMMdd");
+    const randomPart = Math.floor(1000 + Math.random() * 9000).toString();
+    return `R-${datePart}-${randomPart}`;
 }
 
 export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps) {
   const { firestore } = useFirebase();
   const [open, setOpen] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
   const { toast } = useToast();
   const { getSymbol } = useCurrency();
   const [warrantyInfo, setWarrantyInfo] = useState<{ message: string; date: string } | null>(null);
@@ -341,7 +342,7 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
                             </div>
                         )
                     })}
-                     <Popover>
+                     <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
                         <PopoverTrigger asChild>
                             <Button type="button" variant="outline" className="w-full">
                                 <Search className="mr-2 h-4 w-4" /> Añadir Pieza
@@ -365,6 +366,11 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
                                                     } else {
                                                         toast({ variant: 'destructive', title: 'Stock no disponible o ya añadido' })
                                                     }
+                                                    setPopoverOpen(false);
+                                                }}
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
                                                 }}
                                                 disabled={availableStock <= 0 || fields.some(f => f.productId === product.id)}
                                                 className="flex justify-between"
@@ -436,5 +442,3 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
     </Dialog>
   );
 }
-
-    

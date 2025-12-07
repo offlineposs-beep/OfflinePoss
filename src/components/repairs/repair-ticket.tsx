@@ -51,7 +51,7 @@ export function RepairTicket({ repairJob }: RepairTicketProps) {
 
              <div className="my-2 border-t border-dashed border-black"></div>
 
-            <div className="text-left mt-2 text-[8px] space-y-1">
+            <div className="text-left mt-2 text-[10px] space-y-1">
                 <p className="font-bold text-center">Términos y Condiciones:</p>
                 <p>1. La garantía del servicio o reparación es de 4 días a partir de la fecha de entrega.</p>
                 <p>2. Problemas No Relacionados: La garantía cubre exclusivamente la pieza o el servicio específico detallado en este ticket. Si el equipo presenta una falla nueva y diferente (ej. se reparó la pantalla y luego falla la batería), esta no está cubierta.</p>
@@ -65,7 +65,7 @@ export function RepairTicket({ repairJob }: RepairTicketProps) {
             </div>
 
             <div className="mt-4 pt-2 border-t border-dashed border-black text-center">
-                <p className="text-[8px]">Recorte y pegue en el equipo</p>
+                <p className="text-xs">Recorte y pegue en el equipo</p>
                 <p className="font-bold text-lg tracking-wider">{repairJob.id}</p>
             </div>
         </div>
@@ -97,9 +97,10 @@ export const handlePrintTicket = (props: RepairTicketProps, onError: (message: s
                         .break-words { overflow-wrap: break-word; } .justify-between { justify-content: space-between; }
                         .text-destructive { color: hsl(var(--destructive)); }
                         .mt-2 { margin-top: 0.5rem; } .mb-1 { margin-bottom: 0.25rem; } .mt-4 { margin-top: 1rem; } .pt-4 { padding-top: 1rem; }
-                        .font-semibold { font-weight: 600; } .text-\\[8px\\] { font-size: 8px; }
+                        .font-semibold { font-weight: 600; } .text-\\[10px\\] { font-size: 10px; }
                         .text-lg { font-size: 1.125rem; line-height: 1.75rem; } .tracking-wider { letter-spacing: 0.05em; }
                         .pt-2 { padding-top: 0.5rem; }
+                        .text-left { text-align: left; }
                     </style>
                 </head>
                 <body>

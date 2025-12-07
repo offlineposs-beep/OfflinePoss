@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { useFirebase } from "@/firebase";
 import { collection, doc, getDoc, writeBatch } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
+import { format } from 'date-fns';
 
 type CartDisplayProps = {
   cart: CartItem[];
@@ -27,9 +27,9 @@ type CartDisplayProps = {
 
 function generateSaleId() {
     const date = new Date();
-    const datePart = format(date, 'yyMMdd');
-    const randomPart = Math.floor(1000 + Math.random() * 9000);
-    return `VENTA-${datePart}-${randomPart}`;
+    const datePart = format(date, "yyMMdd");
+    const randomPart = Math.floor(1000 + Math.random() * 9000).toString();
+    return `S-${datePart}-${randomPart}`;
 }
 
 export function CartDisplay({ cart, onUpdateQuantity, onRemoveItem, onClearCart, repairJobId, allProducts }: CartDisplayProps) {

@@ -28,7 +28,7 @@ import { useState, type ReactNode, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useFirebase, setDocumentNonBlocking } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
-import { format } from "date-fns";
+import { format } from 'date-fns';
 
 const formSchema = z.object({
   name: z.string().min(2, { message: "El nombre debe tener al menos 2 caracteres." }),
@@ -49,9 +49,9 @@ type ProductFormDialogProps = {
 
 function generateProductId() {
     const date = new Date();
-    const datePart = format(date, 'yyMMdd');
-    const randomPart = Math.floor(1000 + Math.random() * 9000);
-    return `PROD-${datePart}-${randomPart}`;
+    const datePart = format(date, "yyMMdd");
+    const randomPart = Math.floor(1000 + Math.random() * 9000).toString();
+    return `P-${datePart}-${randomPart}`;
 }
 
 
@@ -102,7 +102,7 @@ export function ProductFormDialog({ product, children }: ProductFormDialogProps)
     } else {
       const productId = generateProductId();
       const productRef = doc(firestore, 'products', productId);
-      setDocumentNonBlocking(productRef, { ...values, id: productId, reservedStock: 0 });
+      setDocumentNonBlocking(productRef, { ...values, id: productId, reservedStock: 0 }, { merge: true });
       toast({ title: "Producto Añadido", description: `${values.name} ha sido añadido al inventario.` });
     }
     setOpen(false);
