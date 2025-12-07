@@ -2,14 +2,18 @@
 
 import { ProductGrid } from "@/components/pos/product-grid";
 import { Suspense, useEffect, useState } from "react";
-import type { CartItem, Product, RepairJob } from "@/lib/types";
+import type { CartItem, Product, RepairJob, HeldSale } from "@/lib/types";
 import { CartDisplay } from "@/components/pos/cart-display";
 import { useSearchParams } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useRouter } from "next/navigation";
-import { useCollection, useFirebase, useMemoFirebase, useUser } from "@/firebase";
-import { collection, doc, getDoc } from "firebase/firestore";
+import { useCollection, useFirebase, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase";
+import { collection, doc } from "firebase/firestore";
+import { Button } from "@/components/ui/button";
+import { FolderClock, ParkingSquare } from "lucide-react";
+import { HoldSaleDialog } from "@/components/pos/hold-sale-dialog";
+import { HeldSalesSheet } from "@/components/pos/held-sales-sheet";
 
 function POSContent() {
     const { firestore, isUserLoading } = useFirebase();
@@ -26,9 +30,26 @@ function POSContent() {
     );
     const { data: products, isLoading: productsLoading } = useCollection<Product>(productsCollection);
     
+    const heldSalesCollection = useMemoFirebase(() => 
+        firestore ? collection(firestore, 'held_sales') : null,
+        [firestore]
+    );
+    const { data: heldSales, isLoading: heldSalesLoading } = useCollection<HeldSale>(heldSalesCollection);
+
     useEffect(() => {
         const repairJobData = searchParams.get('repairJob');
-        if (repairJobData && !isUserLoading) {
+        const restoredSaleId = searchParams.get('restoredSaleId');
+
+        if (restoredSaleId && heldSales && !isUserLoading) {
+            const saleToRestore = heldSales.find(s => s.id === restoredSaleId);
+            if (saleToRestore) {
+                setCart(saleToRestore.items);
+                // Optionally remove the restored sale
+                const saleRef = doc(firestore!, 'held_sales', restoredSaleId);
+                deleteDocumentNonBlocking(saleRef);
+                 router.replace('/dashboard/pos', { scroll: false });
+            }
+        } else if (repairJobData && !isUserLoading) {
             try {
                 const job: RepairJob = JSON.parse(decodeURIComponent(repairJobData));
                 setActiveRepairJob(job);
@@ -59,16 +80,17 @@ function POSContent() {
                 });
                 router.push('/dashboard/repairs');
             }
-        } else if (!repairJobData) {
+        } else if (!repairJobData && !restoredSaleId) {
             setCart([]);
             setActiveRepairJob(null);
         }
 
-    }, [searchParams, router, toast, isUserLoading]);
+    }, [searchParams, router, toast, isUserLoading, heldSales, firestore]);
 
 
     const handleProductSelect = (product: Product) => {
-        if(product.stockLevel <= 0) {
+        const availableStock = product.stockLevel - (product.reservedStock || 0);
+        if(availableStock <= 0) {
             toast({
                 variant: "destructive",
                 title: "Sin Stock",
@@ -88,11 +110,11 @@ function POSContent() {
 
             const existingItem = prevCart.find(item => item.productId === product.id);
             if (existingItem) {
-                if(existingItem.quantity >= product.stockLevel) {
+                if(existingItem.quantity >= availableStock) {
                     toast({
                         variant: "destructive",
                         title: "Stock Máximo Alcanzado",
-                        description: `No puedes añadir más de ${product.stockLevel} unidades de ${product.name}.`,
+                        description: `No puedes añadir más de ${availableStock} unidades de ${product.name}.`,
                     });
                     return prevCart;
                 }
@@ -118,11 +140,12 @@ function POSContent() {
             return;
         }
 
-        if(quantity > product.stockLevel) {
+        const availableStock = product.stockLevel - (product.reservedStock || 0);
+        if(quantity > availableStock) {
              toast({
                 variant: "destructive",
                 title: "Stock Insuficiente",
-                description: `Solo hay ${product.stockLevel} unidades de ${product.name} disponibles.`,
+                description: `Solo hay ${availableStock} unidades de ${product.name} disponibles.`,
             });
             return;
         }
@@ -160,6 +183,27 @@ function POSContent() {
             setCart([]);
         }
     }
+    
+    const handleHoldSale = (name: string) => {
+        if (!firestore || cart.length === 0) return;
+
+        const newHeldSale: Omit<HeldSale, 'id'> = {
+            name,
+            items: cart,
+            createdAt: new Date().toISOString()
+        };
+
+        const heldSaleWithId = { ...newHeldSale, id: doc(collection(firestore, 'dummy')).id };
+        const heldSaleRef = doc(firestore, 'held_sales', heldSaleWithId.id);
+        
+        addDocumentNonBlocking(collection(firestore, 'held_sales'), newHeldSale);
+
+        toast({
+            title: "Venta Aparcada",
+            description: `La venta "${name}" ha sido guardada.`
+        });
+        setCart([]);
+    }
 
     return (
         <div className="h-screen flex flex-col bg-slate-50">
@@ -168,10 +212,14 @@ function POSContent() {
                     <SidebarTrigger />
                     <h1 className="text-lg font-semibold md:text-xl">Punto de Venta</h1>
                 </div>
-                 <div className="ml-auto text-sm text-muted-foreground">
-                    <span>TabletSP + Lite v 1.0.2</span>
-                    <span className="mx-2">|</span>
-                    <span>{new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric'})}</span>
+                <div className="ml-auto flex items-center gap-2">
+                    <HeldSalesSheet heldSales={heldSales || []} />
+                    <HoldSaleDialog onHoldSale={handleHoldSale} disabled={cart.length === 0 || cart.some(c => c.isRepair)}>
+                        <Button variant="outline">
+                            <ParkingSquare className="mr-2 h-4 w-4" />
+                            Aparcar Venta
+                        </Button>
+                    </HoldSaleDialog>
                 </div>
             </header>
             <main className="flex-1 grid grid-cols-10 gap-0 overflow-hidden">

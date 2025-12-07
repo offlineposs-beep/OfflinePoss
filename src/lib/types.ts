@@ -28,7 +28,7 @@ export type RepairJob = {
   deviceModel: string;
   deviceImei?: string;
   reportedIssue: string;
-  initialCondition?: string; // Nuevo campo
+  initialCondition?: string;
   estimatedCost: number;
   amountPaid: number;
   isPaid: boolean;
@@ -36,6 +36,8 @@ export type RepairJob = {
   notes?: string;
   createdAt: string;
   reservedParts: ReservedPart[];
+  completedAt?: string;
+  warrantyEndDate?: string;
 };
 
 export type CartItem = {
@@ -44,6 +46,13 @@ export type CartItem = {
   name: string;
   price: number;
   isRepair?: boolean;
+};
+
+export type HeldSale = {
+  id: string;
+  name: string;
+  createdAt: string;
+  items: CartItem[];
 };
 
 export type PaymentMethod = 'Efectivo USD' | 'Efectivo Bs' | 'Tarjeta' | 'Pago Móvil';

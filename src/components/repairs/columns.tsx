@@ -26,7 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { format, parseISO } from "date-fns"
+import { format, parseISO, addDays } from "date-fns"
 import { es } from "date-fns/locale"
 import { useCurrency } from "@/hooks/use-currency"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
@@ -92,13 +92,20 @@ const ActionsCell = ({ repairJob }: { repairJob: RepairJob }) => {
                         Imprimir Ticket
                     </DropdownMenuItem>
                     <RepairFormDialog repairJob={repairJob}>
-                         <AdminAuthDialog onAuthorized={() => {}}>
-                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                                <Edit className="mr-2 h-4 w-4" />
-                                Editar / Ver Detalles
-                            </DropdownMenuItem>
-                        </AdminAuthDialog>
+                         <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                            <Edit className="mr-2 h-4 w-4" />
+                            Ver Detalles
+                        </DropdownMenuItem>
                     </RepairFormDialog>
+                    <AdminAuthDialog onAuthorized={() => {
+                        const editTrigger = document.getElementById(`edit-trigger-${repairJob.id}`);
+                        editTrigger?.click();
+                    }}>
+                        <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                            <Edit className="mr-2 h-4 w-4" />
+                            Editar
+                        </DropdownMenuItem>
+                    </AdminAuthDialog>
                     <DropdownMenuSeparator />
                     <AdminAuthDialog onAuthorized={() => setIsDeleteDialogOpen(true)}>
                         <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={(e) => e.preventDefault()}>
@@ -108,6 +115,10 @@ const ActionsCell = ({ repairJob }: { repairJob: RepairJob }) => {
                     </AdminAuthDialog>
                 </DropdownMenuContent>
             </DropdownMenu>
+             {/* Hidden trigger for authorized edit */}
+             <RepairFormDialog repairJob={repairJob}>
+                <button id={`edit-trigger-${repairJob.id}`} style={{ display: 'none' }}></button>
+            </RepairFormDialog>
 
             {/* Alert for deleting */}
              <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
@@ -135,11 +146,28 @@ const StatusCell = ({ repairJob }: { repairJob: RepairJob }) => {
     const handleStatusChange = (newStatus: RepairStatus) => {
         if (!firestore || !repairJob.id) return;
         const jobRef = doc(firestore, 'repair_jobs', repairJob.id);
-        updateDocumentNonBlocking(jobRef, { status: newStatus });
-        toast({
-            title: 'Estado Actualizado',
-            description: `El estado de la reparación de ${repairJob.customerName} es ahora "${newStatus}".`
-        })
+
+        const updateData: { status: RepairStatus, completedAt?: string, warrantyEndDate?: string } = { status: newStatus };
+
+        const wasCompleted = repairJob.status === 'Completado';
+        const isNowCompleted = newStatus === 'Completado';
+        
+        if (isNowCompleted && !wasCompleted) {
+            const completionDate = new Date();
+            updateData.completedAt = completionDate.toISOString();
+            updateData.warrantyEndDate = addDays(completionDate, 4).toISOString();
+             toast({
+                title: 'Trabajo Completado y Garantía Iniciada',
+                description: `La garantía de 4 días para la reparación de ${repairJob.customerName} ha comenzado.`,
+            });
+        } else {
+             toast({
+                title: 'Estado Actualizado',
+                description: `El estado de la reparación de ${repairJob.customerName} es ahora "${newStatus}".`
+            });
+        }
+
+        updateDocumentNonBlocking(jobRef, updateData);
     }
 
     const status: RepairStatus = repairJob.status;

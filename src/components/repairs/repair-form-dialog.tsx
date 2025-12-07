@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import type { RepairJob, RepairStatus, Product, ReservedPart } from "@/lib/types";
-import { useState, type ReactNode, useEffect } from "react";
+import { useState, type ReactNode, useEffect, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "../ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
@@ -32,12 +32,15 @@ import { useCurrency } from "@/hooks/use-currency";
 import { Checkbox } from "../ui/checkbox";
 import { Label } from "../ui/label";
 import { useFirebase, setDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, doc, writeBatch } from "firebase/firestore";
+import { collection, doc, writeBatch, query, where, getDocs } from "firebase/firestore";
 import { handlePrintTicket } from "./repair-ticket";
-import { Printer, Search, Trash2 } from "lucide-react";
+import { AlertCircle, Printer, Search, Trash2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "../ui/command";
-import { format } from "date-fns";
+import { format, addDays } from "date-fns";
+import { useDebounce } from "use-debounce";
+import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
+import { es } from "date-fns/locale";
 
 const repairStatuses: RepairStatus[] = ['Pendiente', 'Diagnóstico', 'En Progreso', 'Esperando Piezas', 'Listo para Recoger', 'Completado'];
 
@@ -82,9 +85,12 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
   const { getSymbol } = useCurrency();
+  const [warrantyInfo, setWarrantyInfo] = useState<{ message: string; date: string } | null>(null);
 
   const productsCollection = useMemoFirebase(() => firestore ? collection(firestore, 'products') : null, [firestore]);
   const { data: products } = useCollection<Product>(productsCollection);
+  
+  const repairsCollection = useMemoFirebase(() => firestore ? collection(firestore, 'repair_jobs') : null, [firestore]);
 
   const form = useForm<RepairFormData>({
     resolver: zodResolver(formSchema),
@@ -109,9 +115,54 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
     control: form.control,
     name: "reservedParts",
   });
+  
+  const imeiValue = form.watch('deviceImei');
+  const [debouncedImei] = useDebounce(imeiValue, 500); // 500ms debounce
+
+  const checkWarranty = useCallback(async (imei: string) => {
+    if (!imei || !repairsCollection || (repairJob && imei === repairJob.deviceImei)) {
+        setWarrantyInfo(null);
+        return;
+    };
+
+    const q = query(
+        repairsCollection,
+        where("deviceImei", "==", imei),
+        where("status", "==", "Completado")
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const now = new Date();
+    let activeWarranty: { message: string, date: string } | null = null;
+
+    querySnapshot.forEach((doc) => {
+        const job = doc.data() as RepairJob;
+        if (job.warrantyEndDate) {
+            const warrantyEnd = new Date(job.warrantyEndDate);
+            if (now < warrantyEnd) {
+                activeWarranty = {
+                    message: `Este dispositivo tiene una garantía activa de una reparación anterior (ID: ${job.id}).`,
+                    date: `Válida hasta: ${format(warrantyEnd, 'PPP', { locale: es })}`
+                };
+            }
+        }
+    });
+
+    setWarrantyInfo(activeWarranty);
+  }, [repairsCollection, repairJob]);
+
+  useEffect(() => {
+    if (debouncedImei) {
+        checkWarranty(debouncedImei);
+    } else {
+        setWarrantyInfo(null);
+    }
+  }, [debouncedImei, checkWarranty]);
+
 
   useEffect(() => {
     if (open) {
+        setWarrantyInfo(null); // Reset warranty info when dialog opens
         if (repairJob) {
             form.reset({
                 ...repairJob,
@@ -182,16 +233,27 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
         }
     }
 
+    const wasCompleted = repairJob?.status === 'Completado';
+    const isNowCompleted = values.status === 'Completado';
+    let completionData = {};
+    if(isNowCompleted && !wasCompleted) {
+        const completionDate = new Date();
+        completionData = {
+            completedAt: completionDate.toISOString(),
+            warrantyEndDate: addDays(completionDate, 4).toISOString()
+        }
+    }
+
     const finalValues = { ...values, notes: values.notes || "", initialCondition: values.initialCondition || "" };
 
     if (repairJob) {
       const jobRef = doc(firestore, 'repair_jobs', repairJob.id!);
-      batch.set(jobRef, finalValues, { merge: true });
+      batch.set(jobRef, { ...finalValues, ...completionData }, { merge: true });
       await batch.commit();
       toast({ title: "Trabajo de Reparación Actualizado", description: `El trabajo para ${values.customerName} ha sido actualizado.` });
     } else {
       const jobId = generateJobId();
-      const newJobData = { ...finalValues, id: jobId, createdAt: new Date().toISOString() };
+      const newJobData = { ...finalValues, id: jobId, createdAt: new Date().toISOString(), ...completionData };
       const jobRef = doc(firestore, 'repair_jobs', jobId);
       batch.set(jobRef, newJobData);
       await batch.commit();
@@ -213,7 +275,7 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{repairJob ? 'Editar Trabajo de Reparación' : 'Registrar Nuevo Trabajo de Reparación'}</DialogTitle>
+          <DialogTitle>{repairJob ? 'Editar / Ver Detalles de Reparación' : 'Registrar Nuevo Trabajo de Reparación'}</DialogTitle>
           <DialogDescription>
             {repairJob ? 'Actualiza los detalles de este trabajo de reparación.' : 'Rellena los detalles para el nuevo trabajo de reparación.'}
           </DialogDescription>
@@ -241,6 +303,16 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
                  <FormField control={form.control} name="deviceImei" render={({ field }) => (
                     <FormItem className="col-span-2"><FormLabel>IMEI / Serie (Opcional)</FormLabel><FormControl><Input placeholder="123456789012345" {...field} /></FormControl><FormMessage /></FormItem>
                 )}/>
+                {warrantyInfo && (
+                    <Alert variant="destructive" className="col-span-2">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle>¡Dispositivo en Garantía!</AlertTitle>
+                        <AlertDescription>
+                            {warrantyInfo.message}<br />
+                            <span className="font-semibold">{warrantyInfo.date}</span>
+                        </AlertDescription>
+                    </Alert>
+                )}
             </fieldset>
             
             <FormField control={form.control} name="reportedIssue" render={({ field }) => (
@@ -364,3 +436,5 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
     </Dialog>
   );
 }
+
+    

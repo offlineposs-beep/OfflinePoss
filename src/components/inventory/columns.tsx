@@ -49,6 +49,12 @@ const ActionsCell = ({ product }: { product: Product }) => {
         })
         setIsDeleteDialogOpen(false);
     }
+    
+    const handleTriggerEdit = () => {
+        // This is a bit of a hack to programmatically click the trigger
+        // because the AdminAuthDialog consumes the click event.
+        document.getElementById(`edit-trigger-${product.id}`)?.click();
+    }
 
     return (
         <>
@@ -61,14 +67,12 @@ const ActionsCell = ({ product }: { product: Product }) => {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                     <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-                    <ProductFormDialog product={product}>
-                        <AdminAuthDialog onAuthorized={() => {}}>
-                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                                <Edit className="mr-2 h-4 w-4" />
-                                Editar
-                            </DropdownMenuItem>
-                        </AdminAuthDialog>
-                    </ProductFormDialog>
+                    <AdminAuthDialog onAuthorized={handleTriggerEdit}>
+                        <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                            <Edit className="mr-2 h-4 w-4" />
+                            Editar
+                        </DropdownMenuItem>
+                    </AdminAuthDialog>
                     <DropdownMenuSeparator />
                     <AdminAuthDialog onAuthorized={() => setIsDeleteDialogOpen(true)}>
                         <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={(e) => e.preventDefault()}>
@@ -78,6 +82,12 @@ const ActionsCell = ({ product }: { product: Product }) => {
                     </AdminAuthDialog>
                 </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* Hidden trigger for authorized edit */}
+            <ProductFormDialog product={product}>
+                <button id={`edit-trigger-${product.id}`} style={{ display: 'none' }}></button>
+            </ProductFormDialog>
+
 
             {/* Alert for deleting */}
              <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
@@ -164,7 +174,7 @@ export const columns: ColumnDef<Product>[] = [
         variant = "destructive"
       } else if (available <= threshold) {
         variant = "outline";
-        className="border-yellow-500 text-yellow-500"
+        className = "border-yellow-500 text-yellow-500"
       }
 
       return <div className="text-center"><Badge variant={variant} className={className}>{available}</Badge></div>
@@ -195,3 +205,5 @@ export const columns: ColumnDef<Product>[] = [
     cell: ({ row }) => <ActionsCell product={row.original} />,
   },
 ]
+
+    
