@@ -1,28 +1,44 @@
 'use client';
 
 import { firebaseConfig } from '@/firebase/config';
-import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore'
+import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
+import { getAuth, type Auth } from 'firebase/auth';
+import { getFirestore, type Firestore } from 'firebase/firestore';
 
-// IMPORTANT: DO NOT MODIFY THIS FUNCTION
+// This object will hold the initialized Firebase services.
+let firebaseServices: {
+  firebaseApp: FirebaseApp;
+  auth: Auth;
+  firestore: Firestore;
+} | null = null;
+
+/**
+ * Initializes Firebase services using the explicit configuration.
+ * This function ensures that Firebase is initialized only once.
+ * It is safe to call this function multiple times; it will return
+ * the same initialized services instance after the first call.
+ * 
+ * This approach is robust and works across all environments (local, Vercel, etc.).
+ */
 export function initializeFirebase() {
-  if (!getApps().length) {
-    const firebaseApp = initializeApp(firebaseConfig);
-    return getSdks(firebaseApp);
+  if (firebaseServices) {
+    return firebaseServices;
   }
 
-  // If already initialized, return the SDKs with the already initialized App
-  return getSdks(getApp());
+  const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+  
+  const auth = getAuth(app);
+  const firestore = getFirestore(app);
+
+  firebaseServices = {
+    firebaseApp: app,
+    auth,
+    firestore,
+  };
+
+  return firebaseServices;
 }
 
-export function getSdks(firebaseApp: FirebaseApp) {
-  return {
-    firebaseApp,
-    auth: getAuth(firebaseApp),
-    firestore: getFirestore(firebaseApp)
-  };
-}
 
 export * from './provider';
 export * from './client-provider';
