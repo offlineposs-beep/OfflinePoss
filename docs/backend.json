@@ -32,7 +32,11 @@
         },
         "stockLevel": {
           "type": "number",
-          "description": "Current stock level of the product."
+          "description": "Current total stock level of the product."
+        },
+        "reservedStock": {
+          "type": "number",
+          "description": "Quantity of the product reserved for repair jobs."
         },
         "lowStockThreshold": {
           "type": "number",
@@ -145,6 +149,25 @@
         "notes": {
           "type": "string",
           "description": "Internal notes about the repair job."
+        },
+        "reservedParts": {
+          "type": "array",
+          "description": "An array of parts reserved from inventory for this job.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "productId": {
+                "type": "string"
+              },
+              "productName": {
+                "type": "string"
+              },
+              "quantity": {
+                "type": "number"
+              }
+            },
+            "required": ["productId", "productName", "quantity"]
+          }
         }
       },
       "required": [
