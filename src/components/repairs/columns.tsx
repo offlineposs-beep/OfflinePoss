@@ -30,8 +30,8 @@ import { format, parseISO, addDays } from "date-fns"
 import { es } from "date-fns/locale"
 import { useCurrency } from "@/hooks/use-currency"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
-import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase"
-import { doc } from "firebase/firestore"
+import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, useCollection, useMemoFirebase } from "@/firebase"
+import { doc, writeBatch, getDoc } from "firebase/firestore"
 import { handlePrintTicket } from "./repair-ticket"
 import { PayRepairButton } from "./pay-repair-button"
 import { AdminAuthDialog } from "../admin-auth-dialog"
@@ -54,16 +54,46 @@ const ActionsCell = ({ repairJob }: { repairJob: RepairJob }) => {
     const { firestore } = useFirebase();
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
-    const handleDelete = () => {
+    const handleDelete = async () => {
         if (!firestore || !repairJob.id) return;
-        const jobRef = doc(firestore, 'repair_jobs', repairJob.id);
-        deleteDocumentNonBlocking(jobRef);
-        toast({
-            title: "Trabajo de Reparación Eliminado",
-            description: `El trabajo para ${repairJob.customerName} ha sido eliminado.`,
-            variant: "destructive"
-        })
-        setIsDeleteDialogOpen(false);
+        
+        try {
+            const batch = writeBatch(firestore);
+            const jobRef = doc(firestore, 'repair_jobs', repairJob.id);
+
+            // Devolver las piezas reservadas al stock
+            if (repairJob.reservedParts && repairJob.reservedParts.length > 0) {
+                for (const part of repairJob.reservedParts) {
+                    const productRef = doc(firestore, 'products', part.productId);
+                    const productDoc = await getDoc(productRef);
+                    if (productDoc.exists()) {
+                        const productData = productDoc.data();
+                        const currentReservedStock = productData.reservedStock || 0;
+                        const newReservedStock = Math.max(0, currentReservedStock - part.quantity);
+                        batch.update(productRef, { reservedStock: newReservedStock });
+                    }
+                }
+            }
+
+            batch.delete(jobRef);
+            await batch.commit();
+
+            toast({
+                title: "Trabajo de Reparación Eliminado",
+                description: `El trabajo para ${repairJob.customerName} ha sido eliminado y las piezas devueltas al inventario.`,
+                variant: "destructive"
+            });
+
+        } catch (error) {
+             toast({
+                title: "Error al eliminar",
+                description: "No se pudo eliminar el trabajo de reparación. Inténtalo de nuevo.",
+                variant: "destructive"
+            });
+            console.error("Error deleting repair job:", error);
+        } finally {
+            setIsDeleteDialogOpen(false);
+        }
     }
     
     const onPrint = () => {
@@ -75,6 +105,11 @@ const ActionsCell = ({ repairJob }: { repairJob: RepairJob }) => {
             })
         });
     }
+
+    const handleEditClick = () => {
+        const editTrigger = document.getElementById(`edit-trigger-${repairJob.id}`);
+        editTrigger?.click();
+    };
 
     return (
         <>
@@ -91,21 +126,21 @@ const ActionsCell = ({ repairJob }: { repairJob: RepairJob }) => {
                         <Printer className="mr-2 h-4 w-4" />
                         Imprimir Ticket
                     </DropdownMenuItem>
+                    
                     <RepairFormDialog repairJob={repairJob}>
                          <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
                             <Edit className="mr-2 h-4 w-4" />
                             Ver Detalles
                         </DropdownMenuItem>
                     </RepairFormDialog>
-                    <AdminAuthDialog onAuthorized={() => {
-                        const editTrigger = document.getElementById(`edit-trigger-${repairJob.id}`);
-                        editTrigger?.click();
-                    }}>
+                    
+                    <AdminAuthDialog onAuthorized={handleEditClick}>
                         <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
                             <Edit className="mr-2 h-4 w-4" />
                             Editar
                         </DropdownMenuItem>
                     </AdminAuthDialog>
+
                     <DropdownMenuSeparator />
                     <AdminAuthDialog onAuthorized={() => setIsDeleteDialogOpen(true)}>
                         <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={(e) => e.preventDefault()}>
@@ -126,7 +161,7 @@ const ActionsCell = ({ repairJob }: { repairJob: RepairJob }) => {
                     <AlertDialogHeader>
                     <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Esto eliminará permanentemente el trabajo de reparación para <span className="font-semibold">{repairJob.customerName}</span>.
+                        Esto eliminará permanentemente el trabajo de reparación para <span className="font-semibold">{repairJob.customerName}</span> y devolverá las piezas reservadas al inventario.
                     </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
