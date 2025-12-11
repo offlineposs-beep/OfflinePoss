@@ -237,8 +237,8 @@ function POSContent() {
     }
 
     return (
-        <div className="h-screen flex flex-col bg-slate-50">
-             <header className="bg-white flex h-14 items-center gap-4 border-b px-4 sm:h-16 sm:px-6">
+        <div className="flex flex-col h-screen bg-slate-50">
+             <header className="bg-white flex h-14 items-center gap-4 border-b px-4 sm:h-16 sm:px-6 flex-shrink-0">
                 <div className="flex items-center gap-2">
                     <SidebarTrigger />
                     <h1 className="text-lg font-semibold md:text-xl">Punto de Venta</h1>
@@ -254,7 +254,7 @@ function POSContent() {
                 </div>
             </header>
             <main className="flex-1 grid grid-cols-10 gap-0 overflow-hidden">
-                <div className="col-span-4 bg-white border-r">
+                <div className="col-span-4 bg-white border-r h-full">
                     <CartDisplay 
                         cart={cart}
                         allProducts={products || []}
@@ -265,7 +265,7 @@ function POSContent() {
                         repairJobId={activeRepairJob?.id}
                     />
                 </div>
-                <div className="col-span-6 flex flex-col p-4">
+                <div className="col-span-6 flex flex-col p-4 h-full">
                      <ProductGrid products={products || []} onProductSelect={handleProductSelect} isLoading={productsLoading} />
                 </div>
             </main>

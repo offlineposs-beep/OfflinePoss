@@ -110,7 +110,7 @@ export function CartDisplay({ cart, allProducts, onUpdateQuantity, onRemoveItem,
           paymentMethod: payments.map(p => p.method).join(', '),
           transactionDate: new Date().toISOString(),
           payments: payments,
-          ...(repairJobId && { repairJobId: repairJobId }),
+          ...(repairJobId && { repairJobId }),
       };
       
       const saleRef = doc(firestore, 'sale_transactions', saleId);
@@ -131,7 +131,7 @@ export function CartDisplay({ cart, allProducts, onUpdateQuantity, onRemoveItem,
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
-        <div className="p-4 border-b bg-white">
+        <div className="p-4 border-b bg-white flex-shrink-0">
             <h2 className="text-lg font-semibold">Ticket de Venta</h2>
         </div>
       <ScrollArea className="flex-1 bg-white">
@@ -203,7 +203,7 @@ export function CartDisplay({ cart, allProducts, onUpdateQuantity, onRemoveItem,
             </TableBody>
         </Table>
       </ScrollArea>
-      <div className="flex-none p-4 border-t bg-gray-50 space-y-2">
+      <div className="flex-none p-4 border-t bg-gray-50 space-y-2 flex-shrink-0">
         <div className="flex justify-between text-sm">
             <span>Sub-Total</span>
             <div className="text-right">

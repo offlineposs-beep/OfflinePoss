@@ -3,14 +3,16 @@
 
 import type { Product } from "@/lib/types";
 import { Card, CardFooter, CardHeader, CardTitle } from "../ui/card";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { ScrollArea } from "../ui/scroll-area";
 import { useCurrency } from "@/hooks/use-currency";
 import { cn } from "@/lib/utils";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "../ui/skeleton";
 import { TicketPercent, Search } from "lucide-react";
 import { Input } from "../ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "../ui/button";
+
 
 type ProductGridProps = {
   products: Product[];
@@ -18,9 +20,12 @@ type ProductGridProps = {
   isLoading?: boolean;
 };
 
+const PRODUCTS_PER_PAGE = 10;
+
 export function ProductGrid({ products, onProductSelect, isLoading }: ProductGridProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const { format, getSymbol } = useCurrency();
+  const [currentPage, setCurrentPage] = useState(1);
 
   const categories = useMemo(() => {
     if (!products) return ['Todos'];
@@ -41,17 +46,31 @@ export function ProductGrid({ products, onProductSelect, isLoading }: ProductGri
     );
   }, [products, activeCategory, searchTerm]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeCategory, searchTerm]);
+
+  const totalPages = Math.ceil(filteredProducts.length / PRODUCTS_PER_PAGE);
+  const paginatedProducts = useMemo(() => {
+    const startIndex = (currentPage - 1) * PRODUCTS_PER_PAGE;
+    const endIndex = startIndex + PRODUCTS_PER_PAGE;
+    return filteredProducts.slice(startIndex, endIndex);
+  }, [filteredProducts, currentPage]);
+
   return (
     <div className="flex flex-col h-full">
-        <div className="flex flex-col gap-4 mb-4">
-            <Tabs value={activeCategory} onValueChange={setActiveCategory}>
-                <TabsList>
+        <div className="flex flex-col md:flex-row gap-4 mb-4">
+            <Select value={activeCategory} onValueChange={setActiveCategory}>
+                <SelectTrigger className="w-full md:w-[200px]">
+                    <SelectValue placeholder="Seleccionar categoría" />
+                </SelectTrigger>
+                <SelectContent>
                     {categories.map(cat => (
-                        <TabsTrigger key={cat} value={cat}>{cat}</TabsTrigger>
+                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                     ))}
-                </TabsList>
-            </Tabs>
-            <div className="relative">
+                </SelectContent>
+            </Select>
+            <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                     type="search"
@@ -76,7 +95,7 @@ export function ProductGrid({ products, onProductSelect, isLoading }: ProductGri
                             </CardFooter>
                         </Card>
                     ))
-                ) : filteredProducts.map((product) => {
+                ) : paginatedProducts.map((product) => {
                     const availableStock = product.stockLevel - (product.reservedStock || 0);
                     const hasPromo = product.promoPrice && product.promoPrice > 0;
                     const displayPrice = product.retailPrice; 
@@ -108,6 +127,27 @@ export function ProductGrid({ products, onProductSelect, isLoading }: ProductGri
                 })}
             </div>
           </ScrollArea>
+        </div>
+         <div className="flex items-center justify-end space-x-2 pt-4">
+            <span className="text-sm text-muted-foreground">
+                Página {currentPage} de {totalPages}
+            </span>
+            <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+            >
+                Anterior
+            </Button>
+            <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages || filteredProducts.length === 0}
+            >
+                Siguiente
+            </Button>
         </div>
     </div>
   );
