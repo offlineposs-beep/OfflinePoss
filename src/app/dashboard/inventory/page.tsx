@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 import { AdminAuthDialog } from '@/components/admin-auth-dialog';
+import { PrintLabelsButton } from '@/components/inventory/print-labels-button';
 
 function BulkDeleteButton({ table }: { table: TanstackTable<Product> }) {
     const { firestore } = useFirebase();
@@ -155,7 +156,12 @@ function InventoryContent() {
                         return nameMatch || skuMatch || categoryMatch || modelMatch;
                     }}
                 >
-                    {(table) => <BulkDeleteButton table={table} />}
+                    {(table) => (
+                        <div className="flex items-center gap-2">
+                            <PrintLabelsButton table={table} />
+                            <BulkDeleteButton table={table} />
+                        </div>
+                    )}
                 </DataTable>
             </main>
         </>

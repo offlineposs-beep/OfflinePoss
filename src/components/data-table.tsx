@@ -14,10 +14,11 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
+  type Table,
 } from "@tanstack/react-table"
 
 import {
-  Table,
+  Table as ShadcnTable,
   TableBody,
   TableCell,
   TableHead,
@@ -33,7 +34,7 @@ interface DataTableProps<TData, TValue> {
   data: TData[],
   filterPlaceholder: string,
   isLoading?: boolean,
-  children?: (table: ReturnType<typeof useReactTable<TData>>) => React.ReactNode,
+  children?: (table: Table<TData>) => React.ReactNode,
   globalFilterFn?: FilterFn<TData>,
 }
 
@@ -73,7 +74,6 @@ export function DataTable<TData, TValue>({
 
   const columnCount = table.getAllColumns().length;
   const tableRows = table.getRowModel().rows;
-  const selectedRowCount = Object.keys(rowSelection).length;
 
   return (
     <div className="space-y-4">
@@ -86,10 +86,10 @@ export function DataTable<TData, TValue>({
                 }
                 className="max-w-sm"
             />
-             {selectedRowCount > 0 && children && children(table)}
+             {children && children(table)}
         </div>
         <div className="rounded-md border">
-        <Table>
+        <ShadcnTable>
             <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -140,11 +140,11 @@ export function DataTable<TData, TValue>({
                 </TableRow>
             )}
             </TableBody>
-        </Table>
+        </ShadcnTable>
         </div>
         <div className="flex items-center justify-between">
             <div className="text-sm text-muted-foreground">
-                {selectedRowCount} de {table.getFilteredRowModel().rows.length} fila(s) seleccionadas.
+                {table.getFilteredSelectedRowModel().rows.length} de {table.getFilteredRowModel().rows.length} fila(s) seleccionadas.
             </div>
             <div className="flex items-center justify-end space-x-2 py-4">
                 <Button
