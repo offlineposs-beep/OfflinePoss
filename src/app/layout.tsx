@@ -3,6 +3,8 @@ import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import { FirebaseClientProvider } from '@/firebase';
+import { AppLockProvider } from '@/contexts/app-lock-context';
+import { AppLock } from '@/components/app-lock';
 
 export const metadata: Metadata = {
   title: 'POS de Reparación Offline',
@@ -23,8 +25,11 @@ export default function RootLayout({
       </head>
       <body className={cn("font-sans antialiased", process.env.NODE_ENV === 'development' ? 'debug-screens' : '')}>
         <FirebaseClientProvider>
+          <AppLockProvider>
+            <AppLock />
             {children}
             <Toaster />
+          </AppLockProvider>
         </FirebaseClientProvider>
       </body>
     </html>
