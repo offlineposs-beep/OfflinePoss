@@ -182,7 +182,7 @@ const StatusCell = ({ repairJob }: { repairJob: RepairJob }) => {
         if (!firestore || !repairJob.id) return;
         const jobRef = doc(firestore, 'repair_jobs', repairJob.id);
 
-        const updateData: { status: RepairStatus, completedAt?: string, warrantyEndDate?: string } = { status: newStatus };
+        let updateData: Partial<RepairJob> = { status: newStatus };
 
         const wasCompleted = repairJob.status === 'Completado';
         const isNowCompleted = newStatus === 'Completado';
@@ -195,14 +195,13 @@ const StatusCell = ({ repairJob }: { repairJob: RepairJob }) => {
                 title: 'Trabajo Completado y Garantía Iniciada',
                 description: `La garantía de 4 días para la reparación de ${repairJob.customerName} ha comenzado.`,
             });
-        } else {
-             toast({
-                title: 'Estado Actualizado',
-                description: `El estado de la reparación de ${repairJob.customerName} es ahora "${newStatus}".`
-            });
         }
 
         updateDocumentNonBlocking(jobRef, updateData);
+        toast({
+            title: 'Estado Actualizado',
+            description: `El estado de la reparación de ${repairJob.customerName} es ahora "${newStatus}".`
+        });
     }
 
     const status: RepairStatus = repairJob.status;
@@ -306,3 +305,5 @@ export const columns: ColumnDef<RepairJob>[] = [
     }
    },
 ]
+
+    

@@ -1,3 +1,4 @@
+
 {
   "entities": {
     "Product": {
@@ -29,6 +30,10 @@
         "retailPrice": {
           "type": "number",
           "description": "Retail price of the product."
+        },
+        "promoPrice": {
+          "type": "number",
+          "description": "Promotional cash price of the product in USD."
         },
         "stockLevel": {
           "type": "number",
@@ -237,6 +242,22 @@
               "description": "Unique identifier for the repair job."
             }
           ]
+        }
+      },
+      {
+        "path": "/app-settings/main",
+        "definition": {
+          "entityName": "AppSettings",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "currency": { "type": "string", "enum": ["USD", "Bs"] },
+              "bsExchangeRate": { "type": "number" },
+              "lastUpdated": { "type": "string", "format": "date-time" }
+            },
+            "required": ["currency", "bsExchangeRate"]
+          },
+          "description": "Stores global application settings like currency and exchange rates."
         }
       }
     ],

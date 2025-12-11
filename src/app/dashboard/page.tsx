@@ -32,7 +32,8 @@ export default function DashboardPage() {
     );
     const { data: sales, isLoading: salesLoading } = useCollection<Sale>(salesCollection);
 
-    const todaySales = sales?.filter(s => isToday(new Date(s.transactionDate))) || [];
+    const validSales = sales?.filter(s => s.status !== 'refunded') || [];
+    const todaySales = validSales.filter(s => isToday(new Date(s.transactionDate))) || [];
     const totalRevenueToday = todaySales.reduce((sum, sale) => sum + sale.totalAmount, 0);
     
     const lowStockCount = products?.filter(p => p.stockLevel > 0 && p.stockLevel <= p.lowStockThreshold).length || 0;

@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { ArrowUpDown, MoreHorizontal, Edit, Trash2 } from "lucide-react"
+import { ArrowUpDown, MoreHorizontal, Edit, Trash2, TicketPercent } from "lucide-react"
 import { Badge } from "../ui/badge"
 import { ProductFormDialog } from "./product-form-dialog"
 import { useToast } from "@/hooks/use-toast"
@@ -31,6 +31,8 @@ import { useFirebase, deleteDocumentNonBlocking } from "@/firebase"
 import { doc } from "firebase/firestore"
 import { AdminAuthDialog } from "../admin-auth-dialog"
 import { useState } from "react"
+import { cn } from "@/lib/utils"
+import { Checkbox } from "../ui/checkbox"
 
 const ActionsCell = ({ product }: { product: Product }) => {
     const { toast } = useToast();
@@ -111,6 +113,32 @@ const ActionsCell = ({ product }: { product: Product }) => {
 
 export const columns: ColumnDef<Product>[] = [
   {
+    id: "select",
+    header: ({ table }) => (
+      <Checkbox
+        checked={
+          table.getIsAllPageRowsSelected() ||
+          (table.getIsSomePageRowsSelected() && "indeterminate")
+        }
+        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+        aria-label="Seleccionar todo"
+      />
+    ),
+    cell: ({ row }) => (
+      <Checkbox
+        checked={row.getIsSelected()}
+        onCheckedChange={(value) => row.toggleSelected(!!value)}
+        aria-label="Seleccionar fila"
+      />
+    ),
+    enableSorting: false,
+    enableHiding: false,
+  },
+  {
+    accessorKey: "sku",
+    header: "SKU",
+  },
+  {
     accessorKey: "name",
     header: ({ column }) => {
       return (
@@ -123,15 +151,24 @@ export const columns: ColumnDef<Product>[] = [
         </Button>
       )
     },
-    cell: ({ row }) => <div className="font-medium">{row.getValue("name")}</div>
+    cell: ({ row }) => {
+        const product = row.original;
+        const compatibleModels = product.compatibleModels || [];
+        return (
+            <div className="max-w-xs">
+                <div className="font-medium">{product.name}</div>
+                {compatibleModels.length > 0 && (
+                    <div className="text-xs text-muted-foreground truncate" title={compatibleModels.join(', ')}>
+                        Compatible: {compatibleModels.join(', ')}
+                    </div>
+                )}
+            </div>
+        )
+    }
   },
   {
     accessorKey: "category",
     header: "Categoría",
-  },
-  {
-    accessorKey: "sku",
-    header: "SKU",
   },
   {
     accessorKey: "stockLevel",
@@ -184,20 +221,49 @@ export const columns: ColumnDef<Product>[] = [
     accessorKey: "costPrice",
     header: () => <div className="text-right">Precio de Costo</div>,
     cell: function Cell({ row }) {
-      const { format, getSymbol } = useCurrency();
-      const amount = parseFloat(row.getValue("costPrice"))
- 
-      return <div className="text-right font-medium">{getSymbol()}{format(amount)}</div>
+        const { format, convert } = useCurrency();
+        const amountUSD = parseFloat(row.getValue("costPrice"));
+        const amountBs = convert(amountUSD, 'USD', 'Bs');
+   
+        return (
+          <div className="text-right">
+            <div className="font-medium">${format(amountUSD)}</div>
+            <div className="text-xs text-muted-foreground">Bs {format(amountBs, 'Bs')}</div>
+          </div>
+        );
     },
   },
   {
     accessorKey: "retailPrice",
     header: () => <div className="text-right">Precio de Venta</div>,
     cell: function Cell({ row }) {
-      const { format, getSymbol } = useCurrency();
-      const amount = parseFloat(row.getValue("retailPrice"))
- 
-      return <div className="text-right font-medium">{getSymbol()}{format(amount)}</div>
+        const { format, convert } = useCurrency();
+        const promoPrice = row.original.promoPrice;
+        const retailPrice = parseFloat(row.getValue("retailPrice"));
+
+        const hasPromo = promoPrice && promoPrice > 0;
+        const displayPrice = hasPromo ? promoPrice : retailPrice;
+        
+        const amountBs = convert(displayPrice, 'USD', 'Bs');
+   
+        return (
+          <div className="text-right">
+            <div className={cn("font-medium", hasPromo && "text-green-600")}>
+              {hasPromo && <TicketPercent className="w-3 h-3 inline-block mr-1" />}
+              ${format(displayPrice)}
+            </div>
+
+            {hasPromo && retailPrice !== promoPrice && (
+              <div className="text-xs text-muted-foreground line-through">
+                Ref: ${format(retailPrice)}
+              </div>
+            )}
+            
+            <div className="text-xs text-muted-foreground">
+              Bs {format(amountBs, 'Bs')}
+            </div>
+          </div>
+        );
     },
   },
   {
@@ -205,5 +271,3 @@ export const columns: ColumnDef<Product>[] = [
     cell: ({ row }) => <ActionsCell product={row.original} />,
   },
 ]
-
-    

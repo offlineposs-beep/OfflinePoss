@@ -236,13 +236,15 @@ export function RepairFormDialog({ repairJob, children }: RepairFormDialogProps)
 
     const wasCompleted = repairJob?.status === 'Completado';
     const isNowCompleted = values.status === 'Completado';
-    let completionData = {};
-    if(isNowCompleted && !wasCompleted) {
+    let completionData: Partial<RepairJob> = {};
+
+    // Only set completion dates if the status is changing to 'Completado' for the first time
+    if (isNowCompleted && !wasCompleted) {
         const completionDate = new Date();
         completionData = {
             completedAt: completionDate.toISOString(),
             warrantyEndDate: addDays(completionDate, 4).toISOString()
-        }
+        };
     }
 
     const finalValues = { ...values, notes: values.notes || "", initialCondition: values.initialCondition || "" };

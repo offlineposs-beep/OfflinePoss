@@ -4,7 +4,7 @@
 import type { CartItem, Payment, Product, Sale } from "@/lib/types";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Trash2 } from "lucide-react";
+import { Trash2, TicketPercent } from "lucide-react";
 import { useState } from "react";
 import { CheckoutDialog } from "./checkout-dialog";
 import { useCurrency } from "@/hooks/use-currency";
@@ -15,14 +15,16 @@ import { useFirebase } from "@/firebase";
 import { collection, doc, getDoc, writeBatch } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
+import { cn } from "@/lib/utils";
 
 type CartDisplayProps = {
   cart: CartItem[];
+  allProducts: Product[];
   onUpdateQuantity: (productId: string, quantity: number) => void;
   onRemoveItem: (productId: string) => void;
   onClearCart: () => void;
+  onTogglePromo: (productId: string) => void;
   repairJobId?: string;
-  allProducts: Product[];
 };
 
 function generateSaleId() {
@@ -32,18 +34,18 @@ function generateSaleId() {
     return `S-${datePart}-${randomPart}`;
 }
 
-export function CartDisplay({ cart, onUpdateQuantity, onRemoveItem, onClearCart, repairJobId, allProducts }: CartDisplayProps) {
+export function CartDisplay({ cart, allProducts, onUpdateQuantity, onRemoveItem, onClearCart, onTogglePromo, repairJobId }: CartDisplayProps) {
   const { firestore } = useFirebase();
   const { toast } = useToast();
   const router = useRouter();
-  const { format, getSymbol, currency, convert } = useCurrency();
+  const { format: formatCurrency, convert, currency, bsExchangeRate, isLoading: currencyIsLoading } = useCurrency();
   const [discount, setDiscount] = useState(0);
 
   const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
-  const discountInBase = currency === 'Bs' ? convert(discount, 'Bs', 'USD') : discount;
-  const total = subtotal - discountInBase;
+  const total = subtotal - discount;
 
-  const handleCheckout = async (payments: Payment[]) => {
+
+  const handleCheckout = async (payments: Payment[]): Promise<Sale | null> => {
       if (!firestore) return null;
 
       const batch = writeBatch(firestore);
@@ -100,36 +102,32 @@ export function CartDisplay({ cart, onUpdateQuantity, onRemoveItem, onClearCart,
       }
       
       const saleId = generateSaleId();
-      const saleData: Omit<Sale, 'id'> = {
+      const saleDataObject: Omit<Sale, 'id' | 'status'> = {
           items: cart,
           subtotal: subtotal,
-          discount: discountInBase,
+          discount: discount,
           totalAmount: total,
           paymentMethod: payments.map(p => p.method).join(', '),
           transactionDate: new Date().toISOString(),
-          payments: payments, 
-          repairJobId: repairJobId || undefined,
+          payments: payments,
+          ...(repairJobId && { repairJobId: repairJobId }),
       };
       
       const saleRef = doc(firestore, 'sale_transactions', saleId);
-      batch.set(saleRef, { ...saleData, id: saleId });
+      batch.set(saleRef, { ...saleDataObject, id: saleId, status: 'completed' });
 
       await batch.commit();
 
-      const completedSale: Sale = { ...saleData, id: saleId };
+      const completedSale: Sale = { ...saleDataObject, id: saleId, status: 'completed' };
       
       if(repairJobId) {
           router.push('/dashboard/repairs');
       }
       
-      onClearCart();
       setDiscount(0);
 
       return completedSale;
   };
-
-
-  const currentSymbol = getSymbol();
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
@@ -155,9 +153,27 @@ export function CartDisplay({ cart, onUpdateQuantity, onRemoveItem, onClearCart,
                         </TableCell>
                     </TableRow>
                 ) : (
-                    cart.map((item) => (
+                    cart.map((item) => {
+                        const product = allProducts.find(p => p.id === item.productId);
+                        const hasPromo = product && product.promoPrice && product.promoPrice > 0;
+                        const priceInBs = convert(item.price, 'USD', 'Bs');
+                        return (
                         <TableRow key={item.productId}>
-                            <TableCell className="font-medium">{item.name}</TableCell>
+                            <TableCell className="font-medium flex items-center gap-2">
+                                <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className={cn(
+                                        "w-6 h-6",
+                                        !hasPromo && "opacity-25 cursor-default hover:bg-transparent",
+                                        item.isPromo && "text-green-600"
+                                    )}
+                                    onClick={() => hasPromo && onTogglePromo(item.productId)}
+                                >
+                                    <TicketPercent className="w-4 h-4" />
+                                </Button>
+                                {item.name}
+                            </TableCell>
                             <TableCell className="text-center">
                                 <Input 
                                     type="number" 
@@ -167,26 +183,36 @@ export function CartDisplay({ cart, onUpdateQuantity, onRemoveItem, onClearCart,
                                     disabled={item.isRepair}
                                 />
                             </TableCell>
-                            <TableCell className="text-right">{currentSymbol}{format(item.price)}</TableCell>
-                            <TableCell className="text-right">{currentSymbol}{format(item.price * item.quantity)}</TableCell>
+                            <TableCell className="text-right">
+                                <div className={cn("font-medium", item.isPromo && "text-green-600")}>${formatCurrency(item.price)}</div>
+                                <div className="text-xs text-muted-foreground">Bs {formatCurrency(priceInBs, 'Bs')}</div>
+                            </TableCell>
+                            <TableCell className="text-right">
+                                <div className="font-medium">${formatCurrency(item.price * item.quantity)}</div>
+                                <div className="text-xs text-muted-foreground">Bs {formatCurrency(priceInBs * item.quantity, 'Bs')}</div>
+                            </TableCell>
                             <TableCell>
                                <Button variant="ghost" size="icon" className="w-6 h-6" onClick={() => onRemoveItem(item.productId)} disabled={item.isRepair}>
                                     <Trash2 className="w-4 h-4 text-destructive" />
                                 </Button>
                             </TableCell>
                         </TableRow>
-                    ))
+                        )
+                    })
                 )}
             </TableBody>
         </Table>
       </ScrollArea>
       <div className="flex-none p-4 border-t bg-gray-50 space-y-2">
         <div className="flex justify-between text-sm">
-            <span>Sub-Total {currentSymbol}</span>
-            <span>{format(subtotal)}</span>
+            <span>Sub-Total</span>
+            <div className="text-right">
+                <span className="font-medium">${formatCurrency(subtotal)}</span>
+                <span className="text-xs text-muted-foreground block">Bs {formatCurrency(convert(subtotal, 'USD', 'Bs'), 'Bs')}</span>
+            </div>
         </div>
          <div className="flex justify-between text-sm items-center">
-            <span>Descuento {currentSymbol}</span>
+            <span>Descuento $</span>
             <Input 
                 type="number"
                 value={discount || ''}
@@ -196,8 +222,11 @@ export function CartDisplay({ cart, onUpdateQuantity, onRemoveItem, onClearCart,
             />
         </div>
         <CheckoutDialog cart={cart} total={total} onCheckout={handleCheckout} onClearCart={onClearCart}>
-            <Button size="lg" disabled={cart.length === 0} className="w-full h-16 text-2xl bg-green-600 hover:bg-green-700">
-                PAGAR: {currentSymbol}{format(total)}
+            <Button size="lg" disabled={cart.length === 0} className="w-full h-16 text-xl flex flex-col items-center">
+                <span className="text-2xl font-bold">PAGAR: ${formatCurrency(total)}</span>
+                <span className="text-sm font-normal text-primary-foreground/80">
+                    o Bs {formatCurrency(convert(total, 'USD', 'Bs'), 'Bs')}
+                </span>
             </Button>
         </CheckoutDialog>
       </div>

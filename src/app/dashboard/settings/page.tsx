@@ -25,13 +25,15 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { useDoc, useFirebase, useMemoFirebase, setDocumentNonBlocking } from "@/firebase";
 import { doc } from "firebase/firestore";
 import { useEffect } from "react";
+import type { AppSettings } from "@/lib/types";
 
 const settingsSchema = z.object({
     currency: z.enum(['USD', 'Bs']),
     bsExchangeRate: z.coerce.number().positive("La tasa de cambio debe ser un número positivo."),
+    lastUpdated: z.string().optional(),
 });
 
-type AppSettings = z.infer<typeof settingsSchema>;
+type SettingsFormData = z.infer<typeof settingsSchema>;
 
 export default function SettingsPage() {
     const { toast } = useToast();
@@ -43,7 +45,7 @@ export default function SettingsPage() {
     );
     const { data: settings, isLoading } = useDoc<AppSettings>(settingsRef);
 
-    const form = useForm<AppSettings>({
+    const form = useForm<SettingsFormData>({
         resolver: zodResolver(settingsSchema),
         defaultValues: {
             currency: 'USD',
@@ -58,12 +60,16 @@ export default function SettingsPage() {
     }, [settings, form]);
 
 
-    const handleSettingsSave = (values: AppSettings) => {
+    const handleSettingsSave = (values: SettingsFormData) => {
         if (!settingsRef) return;
-        setDocumentNonBlocking(settingsRef, values, { merge: true });
+        const updatedValues = {
+            ...values,
+            lastUpdated: new Date().toISOString()
+        };
+        setDocumentNonBlocking(settingsRef, updatedValues, { merge: true });
         toast({
             title: "Configuración Guardada",
-            description: "La configuración de la moneda ha sido actualizada.",
+            description: "La configuración de la moneda y tasa ha sido actualizada.",
         });
     }
 
@@ -83,9 +89,9 @@ export default function SettingsPage() {
                     <Form {...form}>
                         <form onSubmit={form.handleSubmit(handleSettingsSave)}>
                             <CardHeader>
-                                <CardTitle>Moneda</CardTitle>
+                                <CardTitle>Moneda y Tasa de Cambio</CardTitle>
                                 <CardDescription>
-                                    Configura la moneda principal y la tasa de cambio. Los precios de los productos se deben registrar en USD.
+                                    Configura la moneda principal y la tasa de cambio para Bolívares.
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
@@ -96,7 +102,7 @@ export default function SettingsPage() {
                                     name="currency"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Moneda Principal</FormLabel>
+                                            <FormLabel>Moneda Principal de la Tienda</FormLabel>
                                             <Select onValueChange={field.onChange} value={field.value}>
                                                 <FormControl>
                                                     <SelectTrigger className="w-[280px]">
@@ -108,6 +114,7 @@ export default function SettingsPage() {
                                                     <SelectItem value="Bs">Bolívar (Bs)</SelectItem>
                                                 </SelectContent>
                                             </Select>
+                                            <FormDescription>Define la moneda principal para mostrar los precios en el POS.</FormDescription>
                                             <FormMessage />
                                         </FormItem>
                                     )}
@@ -121,9 +128,7 @@ export default function SettingsPage() {
                                                 <FormControl>
                                                     <Input type="number" step="0.01" placeholder="Ej: 36.50" {...field} className="max-w-[280px]" />
                                                 </FormControl>
-                                            <FormDescription>
-                                                Define la tasa de cambio para las conversiones de moneda.
-                                            </FormDescription>
+                                            <FormDescription>Tasa del día para conversiones (ej. BCV).</FormDescription>
                                             <FormMessage />
                                         </FormItem>
                                     )}
@@ -173,3 +178,5 @@ export default function SettingsPage() {
         </>
     )
 }
+
+    

@@ -1,19 +1,98 @@
 
 "use client";
 
-import React, { Suspense } from 'react';
+import React, { Suspense, useState, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
-import { PlusCircle } from "lucide-react";
+import { PlusCircle, Trash2 } from "lucide-react";
 import { DataTable } from "@/components/data-table";
 import { columns } from "@/components/inventory/columns";
 import { ProductFormDialog } from "@/components/inventory/product-form-dialog";
 import type { Product } from '@/lib/types';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { collection, writeBatch, doc } from 'firebase/firestore';
 import { useSearchParams } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import type { Table as TanstackTable } from '@tanstack/react-table';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useToast } from '@/hooks/use-toast';
+import { AdminAuthDialog } from '@/components/admin-auth-dialog';
+
+function BulkDeleteButton({ table }: { table: TanstackTable<Product> }) {
+    const { firestore } = useFirebase();
+    const { toast } = useToast();
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+    const selectedRows = table.getSelectedRowModel().rows;
+
+    const handleDelete = async () => {
+        if (!firestore || selectedRows.length === 0) return;
+
+        const batch = writeBatch(firestore);
+        selectedRows.forEach(row => {
+            const productRef = doc(firestore, 'products', row.original.id!);
+            batch.delete(productRef);
+        });
+
+        try {
+            await batch.commit();
+            toast({
+                title: "Productos Eliminados",
+                description: `${selectedRows.length} productos han sido eliminados del inventario.`,
+            });
+            table.resetRowSelection();
+        } catch (error) {
+            console.error("Error al eliminar productos en lote:", error);
+            toast({
+                variant: "destructive",
+                title: "Error al Eliminar",
+                description: "No se pudieron eliminar los productos seleccionados.",
+            });
+        } finally {
+            setIsConfirmOpen(false);
+        }
+    };
+    
+    const handleAuthorized = () => {
+        setIsConfirmOpen(true);
+    }
+
+    return (
+        <AdminAuthDialog onAuthorized={handleAuthorized}>
+            <AlertDialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
+                 <AlertDialogTrigger asChild>
+                    <Button variant="destructive" disabled={selectedRows.length === 0}>
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Eliminar ({selectedRows.length})
+                    </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>¿Estás absolutamente seguro?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Esta acción no se puede deshacer. Esto eliminará permanentemente {selectedRows.length} producto(s) de tu inventario.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">
+                            Sí, eliminar
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </AdminAuthDialog>
+    );
+}
 
 // Client component to handle searchParams and state
 function InventoryContent() {
@@ -44,7 +123,7 @@ function InventoryContent() {
     return (
         <>
             <PageHeader title="Inventario">
-                <ProductFormDialog>
+                <ProductFormDialog productCount={products?.length || 0}>
                     <Button>
                         <PlusCircle className="mr-2 h-4 w-4" />
                         Añadir Producto
@@ -63,9 +142,21 @@ function InventoryContent() {
                     columns={columns} 
                     data={filteredProducts}
                     isLoading={isLoading}
-                    filterColumnId="name"
-                    filterPlaceholder="Filtrar por nombre de producto..."
-                />
+                    filterPlaceholder="Buscar por SKU, nombre, categoría, modelo..."
+                    globalFilterFn={(row, columnId, filterValue) => {
+                        const product = row.original;
+                        const searchTerm = filterValue.toLowerCase();
+                        
+                        const nameMatch = product.name.toLowerCase().includes(searchTerm);
+                        const skuMatch = product.sku.toLowerCase().includes(searchTerm);
+                        const categoryMatch = product.category.toLowerCase().includes(searchTerm);
+                        const modelMatch = product.compatibleModels?.some(model => model.toLowerCase().includes(searchTerm)) || false;
+
+                        return nameMatch || skuMatch || categoryMatch || modelMatch;
+                    }}
+                >
+                    {(table) => <BulkDeleteButton table={table} />}
+                </DataTable>
             </main>
         </>
     );

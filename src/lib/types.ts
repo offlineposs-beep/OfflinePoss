@@ -1,3 +1,4 @@
+
 import type { Timestamp } from "firebase/firestore";
 
 export type Product = {
@@ -7,9 +8,11 @@ export type Product = {
   sku: string;
   costPrice: number;
   retailPrice: number;
+  promoPrice?: number;
   stockLevel: number;
   reservedStock: number;
   lowStockThreshold: number;
+  compatibleModels?: string[];
 };
 
 export type ReservedPart = {
@@ -46,6 +49,7 @@ export type CartItem = {
   name: string;
   price: number;
   isRepair?: boolean;
+  isPromo?: boolean;
 };
 
 export type HeldSale = {
@@ -72,6 +76,15 @@ export type Sale = {
   paymentMethod: string;
   transactionDate: string;
   payments: Payment[];
+  status: 'completed' | 'refunded';
+  refundedAt?: string;
+  refundReason?: string;
 };
 
 export type Currency = 'USD' | 'Bs';
+
+export type AppSettings = {
+    currency: Currency;
+    bsExchangeRate: number;
+    lastUpdated?: string; // ISO 8601 date string
+};

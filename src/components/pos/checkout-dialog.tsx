@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { CartItem, Payment, PaymentMethod, Sale } from "@/lib/types";
@@ -122,9 +123,6 @@ export function CheckoutDialog({ cart, total, children, onCheckout, onClearCart 
     const finalPayments = activePayments.filter(p => p.amount > 0.001);
     const sale = await onCheckout(finalPayments);
     if(sale) {
-        if (!sale.repairJobId) {
-          onClearCart();
-        }
         setCompletedSale(sale);
         toast({
             title: "¡Venta Completada!",
@@ -134,6 +132,9 @@ export function CheckoutDialog({ cart, total, children, onCheckout, onClearCart 
   }
 
   const handleClose = () => {
+      if (completedSale) {
+        onClearCart();
+      }
       setOpen(false);
   }
 
@@ -208,6 +209,8 @@ export function CheckoutDialog({ cart, total, children, onCheckout, onClearCart 
                 <div className="text-center p-4 bg-muted rounded-lg">
                     <p className="text-sm text-muted-foreground">Monto Total a Pagar</p>
                     <p className="text-4xl font-bold">{getSymbol()}{format(total)}</p>
+                    {currency === 'USD' && <p className="text-sm text-muted-foreground">o ~Bs {format(convert(total, 'USD', 'Bs'), 'Bs')}</p>}
+                    {currency === 'Bs' && <p className="text-sm text-muted-foreground">o ~${format(convert(total, 'Bs', 'USD'), 'USD')}</p>}
                 </div>
 
                 <div className="space-y-2">

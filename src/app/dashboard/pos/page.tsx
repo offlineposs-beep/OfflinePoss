@@ -9,10 +9,10 @@ import { useSearchParams } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useRouter } from "next/navigation";
-import { useCollection, useFirebase, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from "@/firebase";
+import { useCollection, useFirebase, useMemoFirebase, deleteDocumentNonBlocking, setDocumentNonBlocking } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
-import { FolderClock, ParkingSquare } from "lucide-react";
+import { ParkingSquare } from "lucide-react";
 import { HoldSaleDialog } from "@/components/pos/hold-sale-dialog";
 import { HeldSalesSheet } from "@/components/pos/held-sales-sheet";
 
@@ -130,8 +130,33 @@ function POSContent() {
                     : item
                 );
             }
-            return [...prevCart, { productId: product.id!, name: product.name, price: product.retailPrice, quantity: 1 }];
+            
+            return [...prevCart, { productId: product.id!, name: product.name, price: product.retailPrice, quantity: 1, isPromo: false }];
         });
+    };
+
+    const handleTogglePromo = (productId: string) => {
+        const product = products?.find(p => p.id === productId);
+        if (!product || !product.promoPrice || product.promoPrice <= 0) {
+            toast({
+                variant: "destructive",
+                title: "Sin Precio Promocional",
+                description: "Este producto no tiene un precio de oferta configurado."
+            });
+            return;
+        };
+
+        setCart(prevCart => prevCart.map(item => {
+            if (item.productId === productId) {
+                const isPromo = !item.isPromo;
+                return {
+                    ...item,
+                    isPromo: isPromo,
+                    price: isPromo ? product.promoPrice! : product.retailPrice
+                };
+            }
+            return item;
+        }));
     };
 
     const handleUpdateQuantity = (productId: string, quantity: number) => {
@@ -232,11 +257,12 @@ function POSContent() {
                 <div className="col-span-4 bg-white border-r">
                     <CartDisplay 
                         cart={cart}
+                        allProducts={products || []}
                         onUpdateQuantity={handleUpdateQuantity}
                         onRemoveItem={handleRemoveItem}
                         onClearCart={handleClearCart}
+                        onTogglePromo={handleTogglePromo}
                         repairJobId={activeRepairJob?.id}
-                        allProducts={products || []}
                     />
                 </div>
                 <div className="col-span-6 flex flex-col p-4">

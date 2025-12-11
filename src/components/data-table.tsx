@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -5,6 +6,8 @@ import {
   type ColumnDef,
   type ColumnFiltersState,
   type SortingState,
+  type VisibilityState,
+  type FilterFn,
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
@@ -28,20 +31,25 @@ import { Skeleton } from "./ui/skeleton"
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
   data: TData[],
-  filterColumnId: string,
   filterPlaceholder: string,
   isLoading?: boolean,
+  children?: (table: ReturnType<typeof useReactTable<TData>>) => React.ReactNode,
+  globalFilterFn?: FilterFn<TData>,
 }
 
 export function DataTable<TData, TValue>({
   columns,
   data,
-  filterColumnId,
   filterPlaceholder,
   isLoading = false,
+  children,
+  globalFilterFn,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
+  const [rowSelection, setRowSelection] = React.useState({})
+  const [globalFilter, setGlobalFilter] = React.useState('')
+
 
   const table = useReactTable({
     data,
@@ -51,27 +59,34 @@ export function DataTable<TData, TValue>({
     onSortingChange: setSorting,
     getSortedRowModel: getSortedRowModel(),
     onColumnFiltersChange: setColumnFilters,
+    onGlobalFilterChange: setGlobalFilter,
     getFilteredRowModel: getFilteredRowModel(),
+    onRowSelectionChange: setRowSelection,
+    globalFilterFn: globalFilterFn,
     state: {
       sorting,
       columnFilters,
+      globalFilter,
+      rowSelection,
     },
   })
 
   const columnCount = table.getAllColumns().length;
   const tableRows = table.getRowModel().rows;
+  const selectedRowCount = Object.keys(rowSelection).length;
 
   return (
     <div className="space-y-4">
-        <div className="flex items-center">
+        <div className="flex items-center justify-between">
             <Input
-            placeholder={filterPlaceholder}
-            value={(table.getColumn(filterColumnId)?.getFilterValue() as string) ?? ""}
-            onChange={(event) =>
-                table.getColumn(filterColumnId)?.setFilterValue(event.target.value)
-            }
-            className="max-w-sm"
+                placeholder={filterPlaceholder}
+                value={globalFilter ?? ""}
+                onChange={(event) =>
+                    setGlobalFilter(event.target.value)
+                }
+                className="max-w-sm"
             />
+             {selectedRowCount > 0 && children && children(table)}
         </div>
         <div className="rounded-md border">
         <Table>
@@ -97,9 +112,11 @@ export function DataTable<TData, TValue>({
             {isLoading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={`loading-row-${i}`}>
-                        <TableCell colSpan={columnCount}>
-                             <Skeleton className="h-6" />
-                        </TableCell>
+                        {Array.from({ length: columnCount }).map((_, j) => (
+                             <TableCell key={`loading-cell-${i}-${j}`}>
+                                <Skeleton className="h-6" />
+                             </TableCell>
+                        ))}
                     </TableRow>
                 ))
             ) : tableRows?.length ? (
@@ -125,23 +142,28 @@ export function DataTable<TData, TValue>({
             </TableBody>
         </Table>
         </div>
-        <div className="flex items-center justify-end space-x-2 py-4">
-            <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-            >
-            Anterior
-            </Button>
-            <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-            >
-            Siguiente
-            </Button>
+        <div className="flex items-center justify-between">
+            <div className="text-sm text-muted-foreground">
+                {selectedRowCount} de {table.getFilteredRowModel().rows.length} fila(s) seleccionadas.
+            </div>
+            <div className="flex items-center justify-end space-x-2 py-4">
+                <Button
+                variant="outline"
+                size="sm"
+                onClick={() => table.previousPage()}
+                disabled={!table.getCanPreviousPage()}
+                >
+                Anterior
+                </Button>
+                <Button
+                variant="outline"
+                size="sm"
+                onClick={() => table.nextPage()}
+                disabled={!table.getCanNextPage()}
+                >
+                Siguiente
+                </Button>
+            </div>
         </div>
     </div>
   )

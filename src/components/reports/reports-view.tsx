@@ -1,3 +1,4 @@
+
 "use client"
 
 import type { Product, Sale } from "@/lib/types"
@@ -16,8 +17,12 @@ type ReportsViewProps = {
 
 export function ReportsView({ sales, products, isLoading }: ReportsViewProps) {
     const { format, getSymbol } = useCurrency();
-    const todaySales = sales.filter(s => isToday(new Date(s.transactionDate)));
-    const weekSales = sales.filter(s => isThisWeek(new Date(s.transactionDate), { weekStartsOn: 1 }));
+    
+    // Filter out refunded sales from calculations
+    const validSales = sales.filter(s => s.status !== 'refunded');
+
+    const todaySales = validSales.filter(s => isToday(new Date(s.transactionDate)));
+    const weekSales = validSales.filter(s => isThisWeek(new Date(s.transactionDate), { weekStartsOn: 1 }));
 
     const calculateProfit = (saleList: Sale[]) => {
         return saleList.reduce((totalProfit, sale) => {

@@ -1,6 +1,7 @@
+
 "use client"
 
-import type { Sale, Payment } from "@/lib/types";
+import type { Sale, Payment, Product } from "@/lib/types";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -9,15 +10,133 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { ReceiptView, handlePrintReceipt } from "../pos/receipt-view";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Button } from "../ui/button";
-import { Printer } from "lucide-react";
+import { Printer, Undo2 } from "lucide-react";
 import React, { useState, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "../ui/skeleton";
+import { AdminAuthDialog } from "../admin-auth-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../ui/alert-dialog";
+import { useFirebase, useCollection, useMemoFirebase } from "@/firebase";
+import { doc, writeBatch, collection } from "firebase/firestore";
+import { Badge } from "../ui/badge";
+import { cn } from "@/lib/utils";
+import { Textarea } from "../ui/textarea";
+import { Label } from "../ui/label";
 
 type TransactionListProps = {
     sales: Sale[];
     isLoading?: boolean;
 };
+
+const RefundButton = ({ sale }: { sale: Sale }) => {
+    const { firestore } = useFirebase();
+    const { toast } = useToast();
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+    const [refundReason, setRefundReason] = useState("");
+    
+    const productsCollection = useMemoFirebase(() => 
+        firestore ? collection(firestore, 'products') : null,
+        [firestore]
+    );
+    const { data: products } = useCollection<Product>(productsCollection);
+
+    const handleRefund = async () => {
+        if (!firestore || !products || !sale.id || !refundReason.trim()) {
+             toast({
+                variant: "destructive",
+                title: "Error",
+                description: "El motivo del reembolso es obligatorio."
+            });
+            return;
+        }
+        
+        const batch = writeBatch(firestore);
+
+        // 1. Update product stock
+        for (const item of sale.items) {
+            if (!item.isRepair) {
+                const productRef = doc(firestore, 'products', item.productId);
+                const product = products.find(p => p.id === item.productId);
+                if (product) {
+                    const newStockLevel = product.stockLevel + item.quantity;
+                    batch.update(productRef, { stockLevel: newStockLevel });
+                }
+            }
+        }
+
+        // 2. Mark sale as refunded with reason
+        const saleRef = doc(firestore, 'sale_transactions', sale.id);
+        batch.update(saleRef, {
+            status: 'refunded',
+            refundedAt: new Date().toISOString(),
+            refundReason: refundReason
+        });
+
+        try {
+            await batch.commit();
+            toast({
+                title: "Reembolso Completado",
+                description: `La venta ${sale.id} ha sido marcada como reembolsada y el stock ha sido restaurado.`
+            });
+        } catch (error) {
+            console.error("Error al procesar el reembolso:", error);
+            toast({
+                variant: "destructive",
+                title: "Error en el Reembolso",
+                description: "No se pudo completar el reembolso. Inténtalo de nuevo."
+            });
+        } finally {
+            setIsConfirmOpen(false);
+            setRefundReason("");
+        }
+    };
+    
+    const onAuthorized = () => {
+        setIsConfirmOpen(true);
+    };
+
+    if (sale.status === 'refunded') {
+        return <Badge variant="secondary">Reembolsado</Badge>;
+    }
+    
+    return (
+        <>
+            <AdminAuthDialog onAuthorized={onAuthorized}>
+                <Button variant="outline" size="sm">
+                    <Undo2 className="mr-2 h-4 w-4" />
+                    Reembolsar
+                </Button>
+            </AdminAuthDialog>
+
+            <AlertDialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>¿Confirmar Reembolso?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Esta acción no se puede deshacer. Se devolverá el stock de los productos al inventario y la venta se marcará como reembolsada.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="py-4 space-y-2">
+                        <Label htmlFor="refund-reason">Motivo del Reembolso (obligatorio)</Label>
+                        <Textarea
+                            id="refund-reason"
+                            placeholder="Ej: El cliente se equivocó de modelo, la pieza no funcionó..."
+                            value={refundReason}
+                            onChange={(e) => setRefundReason(e.target.value)}
+                        />
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setRefundReason("")}>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleRefund} disabled={!refundReason.trim()} className="bg-destructive hover:bg-destructive/90">
+                            Sí, confirmar reembolso
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </>
+    );
+};
+
 
 const SaleReceiptDialog = ({ sale }: { sale: Sale }) => {
     const [open, setOpen] = useState(false);
@@ -102,23 +221,37 @@ export function TransactionList({ sales, isLoading }: TransactionListProps) {
         return `${symbol}${formatCurrency(amount)}`;
     }
 
+    // Sort sales by date, most recent first
+    const sortedSales = [...sales].sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
+
+
     return (
         <Accordion type="single" collapsible className="w-full">
-            {sales.map((sale) => (
+            {sortedSales.map((sale) => (
                 <AccordionItem value={sale.id!} key={sale.id}>
-                    <AccordionTrigger>
+                    <AccordionTrigger className={cn(sale.status === 'refunded' && "text-muted-foreground line-through")}>
                         <div className="flex justify-between w-full pr-4">
                             <div className="text-left">
                                 <p className="font-semibold">{format(parseISO(sale.transactionDate), "PPP", { locale: es })}</p>
                                 <p className="text-xs text-muted-foreground">{sale.id}</p>
                             </div>
                             <div className="flex items-center gap-4">
+                                {sale.status === 'refunded' && <Badge variant="destructive">Reembolsado</Badge>}
                                 <p className="font-semibold text-lg">{getSymbol()}{formatCurrency(sale.totalAmount)}</p>
                             </div>
                         </div>
                     </AccordionTrigger>
                     <AccordionContent>
-                        <div className="flex justify-end mb-2">
+                        {sale.status === 'refunded' && sale.refundedAt && (
+                            <div className="mb-4 p-3 rounded-md border border-destructive/50 bg-destructive/10">
+                                <p className="text-sm font-semibold text-destructive">
+                                    Reembolsado el {format(parseISO(sale.refundedAt), "PPP p", { locale: es })}
+                                </p>
+                                {sale.refundReason && <p className="text-sm text-destructive/80 mt-1">Motivo: {sale.refundReason}</p>}
+                            </div>
+                        )}
+                        <div className="flex justify-end items-center mb-2 gap-2">
+                            <RefundButton sale={sale} />
                            <SaleReceiptDialog sale={sale} />
                         </div>
                         <Table>

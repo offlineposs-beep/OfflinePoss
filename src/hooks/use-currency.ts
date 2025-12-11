@@ -2,13 +2,8 @@
 "use client";
 
 import { useDoc, useFirebase, useMemoFirebase } from "@/firebase";
-import type { Currency } from "@/lib/types";
+import type { Currency, AppSettings } from "@/lib/types";
 import { doc } from "firebase/firestore";
-
-type AppSettings = {
-    currency: Currency;
-    bsExchangeRate: number;
-}
 
 export const useCurrency = () => {
     const { firestore } = useFirebase();
@@ -25,22 +20,19 @@ export const useCurrency = () => {
         const c = targetCurrency || currency;
         
         let displayValue = value;
-        let currencySymbol = '$';
         let currencyCode = 'USD';
 
         if (c === 'Bs') {
-            currencySymbol = 'Bs ';
             currencyCode = 'VES';
         }
         
         const formatter = new Intl.NumberFormat('es-VE', {
-            style: 'currency',
-            currency: currencyCode,
+            style: 'decimal',
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
         });
 
-        return formatter.format(displayValue).replace('VES', '').replace('Bs.S.', '').replace(currencySymbol, '').trim();
+        return formatter.format(displayValue);
     };
 
     const getSymbol = (targetCurrency?: Currency) => {
@@ -64,3 +56,5 @@ export const useCurrency = () => {
         isLoading,
     }
 }
+
+    

@@ -1,3 +1,4 @@
+
 "use client"
 
 import { Line, LineChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend } from "recharts"
@@ -23,11 +24,11 @@ export function MonthlyActivityOverview({ sales, repairJobs, isLoading }: Monthl
 
   const data = daysInMonth.map(day => {
     const dailySales = sales
-      .filter(s => isSameDay(new Date(s.transactionDate), day))
+      .filter(s => isSameDay(new Date(s.transactionDate), day) && s.status !== 'refunded')
       .reduce((acc, s) => acc + s.totalAmount, 0);
     
     const dailyRepairs = repairJobs
-      .filter(r => isSameDay(new Date(r.createdAt), day))
+      .filter(r => r.createdAt && isSameDay(new Date(r.createdAt), day))
       .length;
 
     return {
