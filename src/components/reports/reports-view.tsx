@@ -1,13 +1,13 @@
-
 "use client"
 
 import type { Product, Sale } from "@/lib/types"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs"
 import { TransactionList } from "./transaction-list"
 import { isToday, isThisWeek } from "date-fns"
 import { useCurrency } from "@/hooks/use-currency"
 import { Skeleton } from "../ui/skeleton"
+import { CashReconciliationDialog } from "./cash-reconciliation-dialog"
 
 type ReportsViewProps = {
     sales: Sale[];
@@ -60,6 +60,9 @@ export function ReportsView({ sales, products, isLoading }: ReportsViewProps) {
                             {isLoading ? <Skeleton className="h-8 w-32 mb-2" /> : <p className="text-2xl font-bold">{currentSymbol}{format(totalSalesToday)}</p>}
                             {isLoading ? <Skeleton className="h-5 w-24" /> : <p className="text-sm text-muted-foreground">Ganancia: <span className="text-green-600">{currentSymbol}{format(profitToday)}</span></p>}
                         </CardContent>
+                        <CardFooter>
+                            <CashReconciliationDialog todaySales={todaySales} />
+                        </CardFooter>
                     </Card>
                      <Card>
                         <CardHeader>
